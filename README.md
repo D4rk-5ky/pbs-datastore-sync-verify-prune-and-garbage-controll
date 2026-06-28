@@ -17,6 +17,14 @@ Before using it, you are explicitly expected to:
 
 If you do not understand the code, **do not run it**.
 
+⚠️ AI-assisted / vibe-coded experimental software. Use at your own risk.
+
+## Disclaimer
+
+This project is AI-assisted / vibe-coded software created as a hobby project. It has not been professionally audited and may contain bugs, unsafe behavior, data-loss issues, security problems, or incorrect assumptions.
+
+You are responsible for reviewing the code, testing it in a safe environment, making backups, and understanding what it does before using it on real data. The author is not responsible for damage, data loss, broken systems, security issues, or other problems caused by using this software.
+
 ---
 
 ## Overview
