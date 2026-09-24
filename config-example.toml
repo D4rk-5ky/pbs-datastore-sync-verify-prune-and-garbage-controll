@@ -1,0 +1,151 @@
+# Version-controlled example: copy to config.toml if you do not have a local config.
+# Keep credentials and site-specific values in your ignored config.toml.
+# PBS datastore maintenance — version 0.0.3
+# This is the complete configuration. No operational CLI flags are needed.
+# Run: python3 'pbs-datastore-sync-verify,prune-gc.py'
+# Default location: config.toml beside the script, regardless of working directory.
+# Alternate file: --config /absolute/path/config.toml
+# TOML uses true/false, quoted strings, integers and arrays. There is no null.
+# Unknown tables/keys and wrong types fail before any maintenance or notifications.
+# Missing settings use the defaults shown here; never omit dry_run.enabled on a live setup.
+# Keep this file private (chmod 600 config.toml): it can contain passwords.
+# First fill the job IDs/targets below, then inspect a dry-run before enabling live work.
+
+[steps]
+# Run the configured sync job first. false skips it. Default true.
+sync = true
+# Run the configured verify job after sync. false skips it. Default true.
+verify = true
+# Prune after verification using exactly the selected [prune] mode. Default true.
+prune = true
+# Start garbage collection last. false skips it. Default true.
+gc = true
+# At least one step must remain true, even for dry-run.
+
+[jobs]
+# Existing PBS sync job ID. Required when steps.sync=true, also for dry-run.
+# Example: "sync-nightly". Empty default requires you to configure it.
+sync_job = ""
+# Existing PBS verify job ID. Required when steps.verify=true, also for dry-run.
+# Example: "verify-nightly". The app does not create or inspect job definitions.
+verify_job = ""
+# GC datastore name, e.g. "backup-store". Required when steps.gc=true.
+# Independent of the prune datastore/job; the app does not check that targets match.
+gc_datastore = ""
+
+[prune]
+# "job" (default): execute the existing job named below.
+# "manual": use datastore + at least one keep_* integer; leave job="".
+# One mode only. Pruning may delete backup data; review the policy on PBS first.
+mode = "job"
+# Existing PBS prune job ID, required for enabled pruning with mode="job".
+# Example: "prune-nightly". Must be empty for enabled manual pruning.
+job = ""
+# Manual prune datastore, e.g. "backup-store". Required for mode="manual".
+# Unused in job mode; there is no fallback to jobs.gc_datastore.
+datastore = ""
+# Manual retention: latest N backups via PBS --keep-last. Example: 7.
+# "" (default) means omit this rule; integer 0 is explicitly forwarded to PBS.
+keep_last = ""
+# Manual retention: N daily buckets via --keep-daily. Example: 14; "" = unset.
+keep_daily = ""
+# Manual retention: N weekly buckets via --keep-weekly. Example: 8; "" = unset.
+keep_weekly = ""
+# Manual retention: N monthly buckets via --keep-monthly. Example: 12; "" = unset.
+keep_monthly = ""
+# Manual retention: N yearly buckets via --keep-yearly. Example: 3; "" = unset.
+# Counts must be nonnegative integers or "". PBS interprets retention rules.
+# Manual mode needs at least one integer; job mode ignores these counts.
+keep_yearly = ""
+
+[logging]
+# Add DEBUG application messages to the terminal. Default false.
+# Every run automatically creates SCRIPT_DIRECTORY/logs/ and a unique .log file.
+# .log contains status and all captured stdout/stderr. .err is created only for
+# ERROR/CRITICAL records, never ordinary progress or warnings.
+# Command output is an error only when explicitly labelled Error:, TASK ERROR:,
+# FATAL:, CRITICAL:, FAILED:, [ERROR], [FATAL], or [CRITICAL] (case insensitive).
+# A command's nonzero exit always produces an error summary even with no labels.
+# Other output stays in .log; stderr alone does not mean a line is an error.
+# No automatic deletion/rotation: archive or remove old logs yourself.
+verbose = false
+
+[dry_run]
+# true (safe default): validate settings and log the exact planned commands,
+# but NEVER invoke proxmox-backup-manager. false permits real maintenance.
+# Dry-run writes local logs and can make real notification connections below.
+# Job IDs/targets still need to be set; their existence is not checked on PBS.
+enabled = true
+# Send a real MQTT dry-run event. Default false = no MQTT connection in dry-run.
+# Independent of mqtt.enabled. Requires valid [mqtt] settings and paho-mqtt.
+# Event is pbs_maintenance_dry_run with dry_run=true; retain is forced false.
+send_mqtt = false
+# Send a real SMTP message with DRY RUN in the subject. Default false.
+# Independent of email.enabled. Requires valid [email] server/from/to settings.
+send_email = false
+
+[mqtt]
+# Send success/failure events for REAL runs. Default true (original behavior).
+# Set false to disable MQTT for real runs. Dry-run uses dry_run.send_mqtt instead.
+enabled = true
+# Broker hostname/IP. Required only when MQTT sending is selected. Example: "mqtt.example.lan".
+host = ""
+# Broker TCP port, 1..65535; default 1883. Set 8883 explicitly if using that TLS port.
+port = 1883
+# Publish topic, required when MQTT is selected. No +/# wildcards.
+# Example: "pbs/maintenance/status". A dry-run uses the same topic but a distinct event.
+topic = ""
+# Broker username; "" (default) disables authentication. Required if password is set.
+username = ""
+# Broker password; "" default. Use a quoted TOML string; never placed in command arguments.
+password = ""
+# Enable MQTT TLS. Default false; does not automatically change the port.
+tls = false
+# CA certificate file for TLS; "" uses system trust. Ignored by transport without TLS.
+# A supplied file must exist for active MQTT. Relative paths use this TOML file's directory.
+cafile = ""
+# Disable TLS hostname verification; default false. TLS only. Weakens identity checks.
+# Keep false outside an isolated test environment.
+insecure = false
+# MQTT client ID. "" generates pbs-maint-<hostname>-<PID>. Use unique IDs concurrently.
+client_id = ""
+# Retain the last REAL outcome on the broker. Default false. Dry-run always sends non-retained.
+retain = false
+# Positive maximum tail characters PER output stream on failure. Default 4000.
+# Shared by MQTT/email event bodies. Does not limit full logs or in-memory capture.
+max_output_chars = 4000
+# Positive publish wait in seconds; default 15. The helper may wait this amount
+# twice (wait_for_publish + polling); it is not an overall connection/run deadline.
+# MQTT protocol is 3.1.1; QoS is fixed at 1, not a configurable setting.
+timeout_sec = 15
+
+[email]
+# Send SMTP success/failure notifications for REAL runs. Default false.
+# Dry-run uses dry_run.send_email independently; no mail is sent merely by setting this.
+enabled = false
+# SMTP hostname/IP, required when email sending is selected. Example: "smtp.example.lan".
+host = ""
+# SMTP TCP port, 1..65535. Default 587. Often 465 for "ssl" or 25 for a local relay.
+# No automatic port change when security changes.
+port = 587
+# "starttls" (default): require STARTTLS before login/send, with certificate checks.
+# "ssl": TLS from connection start, with certificate checks.
+# "none": plaintext SMTP, for a trusted local relay only. No fallback on TLS failure.
+security = "starttls"
+# SMTP username; "" (default) skips login. Required if password is set.
+username = ""
+# SMTP password; "" default. Keep this file private. Transport debug output is disabled.
+password = ""
+# Sender mailbox address, required for email. Example: "pbs@example.com".
+from_address = ""
+# One or more destination mailboxes, required for email. Default [] = none.
+# Example: ["admin@example.com", "backup@example.com"]. Use bare mailbox addresses.
+to_addresses = []
+# Single-line subject prefix; SUCCESS, FAILED or DRY RUN and hostname are appended.
+subject_prefix = "[PBS maintenance]"
+# CA certificate file for SMTP TLS; "" uses system trust. Relative to this TOML file.
+# No setting disables SMTP certificate/hostname verification.
+cafile = ""
+# Positive socket-operation timeout in seconds, default 15. Not a total delivery deadline.
+# SMTP acceptance does not prove inbox delivery. Partial recipient refusal is an error.
+timeout_sec = 15

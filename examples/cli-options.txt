@@ -1,4 +1,4 @@
-PBS maintenance 0.0.2 — command reference
+PBS maintenance 0.0.3 — command reference
 
 All operational options are configured in ../config.toml. Each has an explanatory
 comment there; README.md documents behavior, defaults, examples and dependencies.
@@ -28,3 +28,11 @@ Default dry-run sends nothing. Config targets are required even in dry-run.
 Offline tests:
   python3 -B -m unittest discover -s tests -v
     No real PBS, MQTT or SMTP connections; temporary log/config files are cleaned up.
+
+Create local config when missing:
+  test -e config.toml || cp config-example.toml config.toml
+    Copy the commented example without replacing an existing local config.
+
+Git ignores config*.* except config-example.toml. For a previously tracked config:
+  git rm --cached -- config.toml
+    Remove the file from the Git index only; retain it locally. Does not erase history.

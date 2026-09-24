@@ -1,20 +1,21 @@
 {
-  "version": "0.0.2",
+  "version": "0.0.3",
   "source_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-main.zip",
   "source_sha256": "50093438e40268b938fedf44ccaee1dda9571bd7cb5aff993885440c0dfdfca9",
-  "prior_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-0.0.1.zip",
-  "prior_sha256": "d36909edcda375f591a554b43f1230eaa485d55a364885c58d37cc76dc722dd6",
+  "source_note": "Original archive hash retained from prior release; original file hashes independently verified against preserved extraction.",
+  "prior_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-0.0.2.zip",
+  "prior_sha256": "7312c30eb2ae729b3971a5bec44154b09fbb19fa0c4dee36330d687fb21a8285",
   "original_files": [
-    {
-      "path": "README.md",
-      "source_sha256": "46dc8489208408eb46622bfccfc4f52b58cba485243b3074d02c485a086037dc",
-      "release_sha256": "64e887fe4cd6d0de0d10b7485c5e1ae65784ab493c47278db9a35b87892b49ed",
-      "status": "modified"
-    },
     {
       "path": "pbs-datastore-sync-verify,prune-gc.py",
       "source_sha256": "ab539598a839f74da4390cab3a2b7f942714255ebe8d0ec8a80070e2b3e8ddf0",
-      "release_sha256": "e380cffeade64957abd1261c7637d82aba86866139b64337c0cd9e5e15a70172",
+      "release_sha256": "68a850d87d674335495a8f03ad6118ed49aa5411d1e4eb7825839fed52520a7e",
+      "status": "modified"
+    },
+    {
+      "path": "README.md",
+      "source_sha256": "46dc8489208408eb46622bfccfc4f52b58cba485243b3074d02c485a086037dc",
+      "release_sha256": "97858700bb3c65cc2252ec0eaa5af382e44d9d92b6b8a74a24c092d4c92ff059",
       "status": "modified"
     }
   ],
@@ -25,67 +26,81 @@
     "VERSION",
     "VERSIONING.md",
     "commented_code_map.md",
+    "config.toml",
     "examples/cli-options.txt",
     "pbs-datastore-sync-verify,prune-gc.py",
+    "requirements.txt",
     "tests/test_maintenance.py"
   ],
   "missing_original_files": [],
   "missing_prior_release_files": [],
   "added_since_original": [
+    ".gitignore",
     "RELEASE_MANIFEST.json",
     "VERIFICATION.md",
     "VERSION",
     "VERSIONING.md",
     "commented_code_map.md",
+    "config-example.toml",
     "config.toml",
     "examples/cli-options.txt",
     "requirements.txt",
     "tests/test_maintenance.py"
   ],
   "added_since_prior_release": [
-    "config.toml",
-    "requirements.txt"
+    ".gitignore",
+    "config-example.toml"
   ],
   "release_files": [
     {
+      "path": ".gitignore",
+      "size": 139,
+      "sha256": "0b08d8d496629651031f7104a2a5d2abfed106bed23db3273923faf238008519"
+    },
+    {
       "path": "README.md",
-      "size": 19770,
-      "sha256": "64e887fe4cd6d0de0d10b7485c5e1ae65784ab493c47278db9a35b87892b49ed"
+      "size": 20982,
+      "sha256": "97858700bb3c65cc2252ec0eaa5af382e44d9d92b6b8a74a24c092d4c92ff059"
     },
     {
       "path": "VERIFICATION.md",
-      "size": 4253,
-      "sha256": "3428b37deaafd4e4c58a5fd048587b62e04850aae16779acbb84dbb69cf8be30"
+      "size": 2276,
+      "sha256": "eaba66680774b846a4f18a3b5dd48e603187fed7b85a0c3ca0d18c6e3442c0d9"
     },
     {
       "path": "VERSION",
       "size": 6,
-      "sha256": "a5dd346546a384362936b97a4c2f5da2d3d253043ea9679aa7b97d89550dfdbd"
+      "sha256": "4cac276b6ec5d4c71cd96ca2e7b762eb125439adbc8721de5613106d1345fe2d"
     },
     {
       "path": "VERSIONING.md",
-      "size": 6389,
-      "sha256": "bdb3a795343fba38baaa65463a18540e77f248b7b30182c953b62da9f343f7e5"
+      "size": 7460,
+      "sha256": "e0a3944eb92ffccade18fbe864a168b2b5615b52fc4e7ec93fae472e6a59a586"
     },
     {
       "path": "commented_code_map.md",
-      "size": 16221,
-      "sha256": "5e122464f686f02cf425b63dcc26b64dd66536db39f43c4b6d6c80742784e28b"
+      "size": 16620,
+      "sha256": "cf8767c6a204b3cccccfcf4d930683effdab70ef7cfcfd70999905ec5b2891b6"
+    },
+    {
+      "path": "config-example.toml",
+      "size": 7998,
+      "sha256": "20a654ab79ee489883d881843f70b5daaeee4d3a3a0a421c40a1ac360141ff85"
     },
     {
       "path": "config.toml",
       "size": 7840,
-      "sha256": "d7611fc9c61b50a8458b04fb527194dec938fd98d518658500a7d9c2302e9420"
+      "sha256": "98fb0fa9c685d28b541f4849fa50ec11d3c129cf6a0756e45cc7a848275ba167"
     },
     {
       "path": "examples/cli-options.txt",
-      "size": 1578,
-      "sha256": "cc63b9ecab690c5a925b62aa326f7fc1cda4731b3f38757d969078b3b05df2c0"
+      "size": 1953,
+      "sha256": "dbe0df66bfc1301e6a49a288f95172982b38b8a4824472a44332453d9146e3fc"
     },
     {
       "path": "pbs-datastore-sync-verify,prune-gc.py",
       "size": 26257,
-      "sha256": "e380cffeade64957abd1261c7637d82aba86866139b64337c0cd9e5e15a70172"
+      "sha256": "68a850d87d674335495a8f03ad6118ed49aa5411d1e4eb7825839fed52520a7e"
     },
     {
       "path": "requirements.txt",
@@ -94,9 +109,9 @@
     },
     {
       "path": "tests/test_maintenance.py",
-      "size": 21107,
-      "sha256": "0600862794c6a8917c11f007416043941bca5d1cf0c042015418cc82d987ec41"
+      "size": 21123,
+      "sha256": "f7cf213e66174b804f2ef61ce1525274880fe5dd5b3a5fe29520b4a97479530e"
     }
   ],
-  "manifest_note": "All release files are hashed except this manifest itself (to avoid recursion). ZIP CRC and the external archive SHA-256 cover it."
+  "manifest_note": "Manifest self-hash excluded to avoid recursion. ZIP CRC and external archive SHA-256 cover the entire package."
 }

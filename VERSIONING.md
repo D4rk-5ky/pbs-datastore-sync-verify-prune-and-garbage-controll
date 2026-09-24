@@ -4,6 +4,15 @@
 
 Use the single canonical filename `VERSIONING.md`. Do not create a case-only `versioning.md` duplicate: it conflicts on case-insensitive filesystems.
 
+## 0.0.3 — 2026-09-24
+
+- Add `.gitignore` with `config*.*` and `!config-example.toml`. Use the requested example filename consistently; no misspelled duplicate is created.
+- Add `config-example.toml` with all 43 options, complete existing comments, blank site-specific fields, and safe dry-run defaults. Preserve the original `config.toml` in the full release ZIP.
+- Document non-overwriting template setup, the unchanged default config path, and the distinction between ignored and already tracked files in README and the command/code references. Preserve the exact disclaimer.
+- Increment VERSION and the application's version constant from 0.0.2 to 0.0.3; no maintenance, logging, notification, or validation behavior changes.
+- Update the existing schema/default test to read the tracked example, so it works in Git checkouts without an ignored local config. Update its version expectation.
+- Refresh verification and manifest; preserve every original and prior-release path; exclude runtime logs, caches, bytecode, environments, and temporary files from the ZIP.
+
 ## 0.0.2 — 2026-09-24
 
 Code and configuration changes:

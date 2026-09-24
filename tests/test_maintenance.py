@@ -218,7 +218,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(Path(events[0]['payload']['err_file']).exists())
 
     def test_help_and_version_require_no_configuration(self):
-        for flag, expected in [('--help', '--config'), ('--version', '0.0.2')]:
+        for flag, expected in [('--help', '--config'), ('--version', '0.0.3')]:
             with self.subTest(flag=flag), patch.object(sys, 'argv', [str(SCRIPT), flag]), \
                  patch.object(app, 'build_logger') as log, patch.object(app, 'load_config') as load, \
                  contextlib.redirect_stdout(io.StringIO()) as output:
@@ -274,11 +274,11 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(self.run_app(raw='[unknown]\nx = true'), (2, [], [], []))
 
     def test_bundled_config_covers_defaults_and_is_safe(self):
-        bundled = app.load_config(SCRIPT.parent/'config.toml')
+        bundled = app.load_config(SCRIPT.parent/'config-example.toml')
         self.assertEqual(bundled, app.DEFAULT_CONFIG)
         self.assertTrue(bundled['dry_run']['enabled'])
         self.assertEqual(app.notification_channels(bundled), dict(mqtt=False, email=False))
-        with (SCRIPT.parent/'config.toml').open('rb') as stream:
+        with (SCRIPT.parent/'config-example.toml').open('rb') as stream:
             self.assertEqual(app.tomllib.load(stream), app.DEFAULT_CONFIG)
 
     def test_config_relative_certificate_paths(self):

@@ -41,7 +41,7 @@ except ImportError:  # Python 3.9/3.10 support without inventing a TOML parser.
         tomllib = None
 
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG = {
     "steps": {"sync": True, "verify": True, "prune": True, "gc": True},

@@ -1,12 +1,12 @@
-# Commented code map — 0.0.2
+# Commented code map — 0.0.3
 
 Every function/method in the shipped application and test module is listed below. Source names remain unchanged where reused. Maintenance commands, config loading, logging and transport roles are explained separately.
 
 ## Application data and modules
 
-- `__version__` and `VERSION`: current release, both 0.0.2.
+- `__version__` and `VERSION`: current release, both 0.0.3.
 - `SCRIPT_DIR`: resolved Python script directory; anchors default config and logs even from another working directory.
-- `DEFAULT_CONFIG`: the full typed configuration schema and safe defaults. The supplied `config.toml` has every setting, with comments; the tests require it to match this schema exactly.
+- `DEFAULT_CONFIG`: the full typed configuration schema and safe defaults. The tracked `config-example.toml` has every setting, with comments; the tests require it to match this schema exactly.
 - `CmdResult`: existing dataclass carrying argv, return code, stdout and stderr for reporting. Standard dataclass methods are generated, not manually defined.
 - `ConsoleFilter` and `PrivateFileHandler`: small logging extensions to avoid duplicate console output and restrict file permissions.
 - Optional `mqtt` import: allows quiet dry-run/help without Paho. Active sending validates availability before maintenance.
@@ -84,7 +84,7 @@ Tests create isolated temporary directories, replace all workflow PBS/MQTT/SMTP 
 | `MaintenanceTests.test_local_stream_capture_and_error_only_file` | Verify local stream capture and error only file, preserving the corresponding behavior without production side effects. |
 | `MaintenanceTests.test_stderr_progress_alone_does_not_create_err` | Verify stderr progress alone does not create err, preserving the corresponding behavior without production side effects. |
 | `MaintenanceTests.test_config_errors_are_logged_without_toml_source` | Verify config errors are logged without toml source, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_bundled_config_covers_defaults_and_is_safe` | Verify bundled config covers defaults and is safe, preserving the corresponding behavior without production side effects. |
+| `MaintenanceTests.test_bundled_config_covers_defaults_and_is_safe` | Load the tracked config-example.toml and verify its complete schema/defaults and safe dry-run settings; this also works in Git checkouts without a local config.toml. |
 | `MaintenanceTests.test_config_relative_certificate_paths` | Verify config relative certificate paths, preserving the corresponding behavior without production side effects. |
 | `MaintenanceTests.test_script_local_paths_ignore_caller_working_directory` | Verify script local paths ignore caller working directory, preserving the corresponding behavior without production side effects. |
 | `MaintenanceTests.test_log_creation_failure_prevents_work` | Verify log creation failure prevents work, preserving the corresponding behavior without production side effects. |
@@ -100,6 +100,8 @@ Tests create isolated temporary directories, replace all workflow PBS/MQTT/SMTP 
 
 - `python3 -m venv .venv`: create an isolated installation environment.
 - `.venv/bin/python -m pip install -r requirements.txt`: install MQTT support and conditional TOML parsing dependency.
+- `test -e config.toml || cp config-example.toml config.toml`: create a local config only if none exists.
+- `git rm --cached -- config.toml`: untrack an already tracked config without deleting the local file; does not erase history.
 - `chmod 600 config.toml`: restrict credential-bearing config access.
 - `.venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py'`: load script-local config and perform the selected workflow.
 - `--config PATH`: select another TOML file; a relative path uses cwd. Config remains the source of all operational settings.
@@ -110,6 +112,6 @@ Tests create isolated temporary directories, replace all workflow PBS/MQTT/SMTP 
 
 ## Release documentation and scope
 
-`README.md` covers current use and every config setting; `config.toml` contains the full annotated defaults; `examples/cli-options.txt` covers the remaining selection/information commands. `VERSIONING.md` records all changes, `VERIFICATION.md` states checks/limits, and `RELEASE_MANIFEST.json` accounts for original and prior-release paths and hashes. Packaging tools and generated logs/caches stay outside the deliverable.
+`README.md` covers current use and every config setting; `config-example.toml` contains the full annotated defaults; `config.toml` is the ignored local config; `.gitignore` excludes `config*.*` except `config-example.toml`; `examples/cli-options.txt` covers the remaining selection/information commands. `VERSIONING.md` records all changes, `VERIFICATION.md` states checks/limits, and `RELEASE_MANIFEST.json` accounts for original and prior-release paths and hashes. Packaging tools and generated logs/caches stay outside the deliverable.
 
 Existing limits include no PBS command timeout/overlap lock/task polling, unbounded in-memory capture, five-second reader joins and version-dependent MQTT callback behavior. The error-only log recognizes labels, not arbitrary text semantics. See README for operational implications.

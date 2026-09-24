@@ -1,6 +1,6 @@
 # PBS datastore maintenance
 
-Version **0.0.2**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and SMTP can report outcomes, including explicitly requested dry-run notifications.
+Version **0.0.3**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and SMTP can report outcomes, including explicitly requested dry-run notifications.
 
 ## ⚠️ Disclaimer / Liability
 
@@ -40,13 +40,14 @@ From the extracted project directory:
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
+test -e config.toml || cp config-example.toml config.toml
 chmod 600 config.toml
 .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' --help
 ```
 
-The first command creates an isolated environment. The second installs Paho for MQTT and, on Python 3.9/3.10, Tomli for TOML parsing; Python 3.11+ uses built-in `tomllib`. `chmod` restricts the config because it can contain credentials. Help explains the few informational/selection flags and does not create logs or connect to anything.
+The first command creates an isolated environment. The second installs Paho for MQTT and, on Python 3.9/3.10, Tomli for TOML parsing; Python 3.11+ uses built-in `tomllib`. The `test`/`cp` command creates `config.toml` from the example only when it is absent, preserving an existing configuration. `chmod` restricts the config because it can contain credentials. Help explains the few informational/selection flags and does not create logs or connect to anything.
 
-1. Edit **[config.toml](config.toml)**. Fill in the IDs/targets for enabled steps. Every setting has comments, defaults and relevant examples.
+1. Copy **[config-example.toml](config-example.toml)** to `config.toml` if needed, then edit your local `config.toml`. Fill in the IDs/targets for enabled steps. Every setting has comments, defaults and relevant examples.
 2. Leave `[dry_run] enabled = true`, `send_mqtt = false`, and `send_email = false`. The supplied file deliberately leaves your job IDs/targets empty: it will report a configuration error until you fill them in.
 3. Run the script, inspect the planned commands in the terminal and `logs/`, and review the selected PBS jobs and retention policy.
 4. To test notifications, configure the desired transport and explicitly enable its dry-run send setting.
@@ -57,6 +58,14 @@ The first command creates an isolated environment. The second installs Paho for 
 ```
 
 The default config and log folder are located beside the **resolved script file**, regardless of the working directory or a symlink used to launch it. The script directory must be writable to create logs. There is no fallback to another log directory if this fails; maintenance does not start.
+
+## Git configuration files
+
+`.gitignore` ignores `config*.*` files at any directory level, with an exception for **`config-example.toml`** so the complete commented defaults remain available in Git. Store your local settings and credentials in `config.toml`; keep the example free of real credentials.
+
+The release ZIP still includes the original `config.toml` with blank site-specific values. A Git checkout can use the copy command above to create its ignored local config from the example. The application continues to load `config.toml` by default.
+
+Ignore rules do not affect files already tracked by Git. If your repository already tracks `config.toml`, run `git rm --cached -- config.toml` to remove it from the index while retaining your local file, then commit that change. This does not remove it from past commits.
 
 ## Commands
 
@@ -246,7 +255,7 @@ Unexpected exceptions and interruptions may terminate without an outcome notific
 
 ## Project and verification files
 
-`config.toml` is the complete commented config. `requirements.txt` defines installation dependencies. `commented_code_map.md` explains functions/commands; `VERSIONING.md` records releases; `VERIFICATION.md` records tests and their limits. `RELEASE_MANIFEST.json` records original/prior-file preservation and release hashes. The ZIP excludes generated logs, bytecode, environments and temporary files.
+`config-example.toml` is the complete commented example; `config.toml` holds the local configuration. `.gitignore` excludes local config files while allowing the example. `requirements.txt` defines installation dependencies. `commented_code_map.md` explains functions/commands; `VERSIONING.md` records releases; `VERIFICATION.md` records tests and their limits. `RELEASE_MANIFEST.json` records original/prior-file preservation and release hashes. The ZIP excludes generated logs, bytecode, environments and temporary files.
 
 Implementation references: [Python TOML parsing](https://docs.python.org/3/library/tomllib.html), [Python SMTP](https://docs.python.org/3/library/smtplib.html), and [Python file logging](https://docs.python.org/3/library/logging.handlers.html).
 
