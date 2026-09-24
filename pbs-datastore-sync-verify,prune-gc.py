@@ -1,27 +1,6 @@
 #!/usr/bin/env python3
-"""
-pbs_sync_verifyjob_gc_mqtt.py
-
-Runs selected PBS maintenance steps in this order:
-  1) sync-job run
-  2) verify-job run
-  3) prune  (either manual prune with retention OR prune-job run)
-  4) garbage-collection start
-
-Prune behavior:
-  - If you pass --prune ... -> runs manual prune using keep-* retention flags
-  - If you pass --prune-job <id> -> runs the configured PBS prune job instead
-  - If prune step is enabled (default) you MUST choose exactly one of the above.
-
-Streams stdout/stderr live to terminal while also capturing output.
-
-Publishes MQTT on:
-  - success (all selected steps succeeded)
-  - failure (first selected step that fails), including which step failed and rc/output.
-
-Requirements:
-  - Run on PBS server (proxmox-backup-manager available)
-  - pip install paho-mqtt
+"""PBS maintenance configured by config.toml; ordered execution, local logs,
+MQTT/SMTP notifications and a dry-run that never starts a PBS command.
 """
 
 from __future__ import annotations
@@ -30,10 +9,19 @@ import argparse
 import json
 import logging
 import os
+import re
+import shlex
+import shutil
+import smtplib
+import ssl
 import socket
 import subprocess
 import sys
 import threading
+from copy import deepcopy
+from email.message import EmailMessage
+from pathlib import Path
+from uuid import uuid4
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
@@ -42,6 +30,34 @@ try:
     import paho.mqtt.client as mqtt
 except ImportError:
     mqtt = None
+
+
+try:
+    import tomllib
+except ImportError:  # Python 3.9/3.10 support without inventing a TOML parser.
+    try:
+        import tomli as tomllib
+    except ImportError:
+        tomllib = None
+
+
+__version__ = "0.0.2"
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG = {
+    "steps": {"sync": True, "verify": True, "prune": True, "gc": True},
+    "jobs": {"sync_job": "", "verify_job": "", "gc_datastore": ""},
+    "prune": {"mode": "job", "job": "", "datastore": "", "keep_last": "",
+              "keep_daily": "", "keep_weekly": "", "keep_monthly": "", "keep_yearly": ""},
+    "logging": {"verbose": False},
+    "dry_run": {"enabled": True, "send_mqtt": False, "send_email": False},
+    "mqtt": {"enabled": True, "host": "", "port": 1883, "topic": "",
+             "username": "", "password": "", "tls": False, "cafile": "",
+             "insecure": False, "client_id": "", "retain": False,
+             "max_output_chars": 4000, "timeout_sec": 15},
+    "email": {"enabled": False, "host": "", "port": 587, "security": "starttls",
+              "username": "", "password": "", "from_address": "", "to_addresses": [],
+              "subject_prefix": "[PBS maintenance]", "cafile": "", "timeout_sec": 15},
+}
 
 
 @dataclass
@@ -73,7 +89,11 @@ def _reader_thread(stream, sink_lines: List[str], *, to_stderr: bool, logger: lo
                 print(line, file=sys.stderr)
             else:
                 print(line)
-            logger.debug(line)
+            # stderr is a transport stream, not a severity level. Keep progress
+            # in the full log; only explicitly labelled errors reach .err.
+            level = logging.ERROR if is_error_line(line) else logging.INFO
+            logger.log(level, "[%s] %s", "stderr" if to_stderr else "stdout", line,
+                       extra={"command_output": True})
     finally:
         try:
             stream.close()
@@ -86,7 +106,7 @@ def run_cmd_stream(argv: List[str], *, env: Optional[dict], logger: logging.Logg
     Run a command and stream stdout/stderr live to terminal while capturing output.
     Uses threads to avoid deadlocks from pipe buffering.
     """
-    logger.info("Running: %s", " ".join(argv))
+    logger.info("Running: %s", shlex.join(argv))
 
     proc = subprocess.Popen(
         argv,
@@ -95,6 +115,7 @@ def run_cmd_stream(argv: List[str], *, env: Optional[dict], logger: logging.Logg
         text=True,
         env=env if env is not None else os.environ.copy(),
         bufsize=1,
+        errors="replace",
     )
 
     assert proc.stdout is not None
@@ -127,9 +148,9 @@ def run_cmd_stream(argv: List[str], *, env: Optional[dict], logger: logging.Logg
     stderr = "\n".join(stderr_lines)
 
     if rc != 0:
-        logger.error("FAILED (rc=%s): %s", rc, " ".join(argv))
+        logger.error("FAILED (rc=%s): %s", rc, shlex.join(argv))
     else:
-        logger.info("OK: %s", " ".join(argv))
+        logger.info("OK: %s", shlex.join(argv))
 
     return CmdResult(argv=argv, returncode=rc, stdout=stdout, stderr=stderr)
 
@@ -225,17 +246,63 @@ def mqtt_publish(
     logger.info("MQTT published OK")
 
 
-def build_logger(verbose: bool) -> logging.Logger:
+class ConsoleFilter(logging.Filter):
+    """Command lines are already printed live; avoid a second console copy."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not getattr(record, "command_output", False)
+
+
+class PrivateFileHandler(logging.FileHandler):
+    """Create run logs readable/writable only by the running account."""
+    def _open(self):
+        fd = os.open(self.baseFilename, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        return os.fdopen(fd, "a", encoding="utf-8", errors="replace")
+
+
+def is_error_line(line: str) -> bool:
+    """Recognize explicit severity prefixes without mistaking progress for errors."""
+    # PBS output can prepend an ISO-style timestamp before TASK ERROR / Error.
+    text = re.sub(r"^\d{4}-\d{2}-\d{2}[T ][0-9:.+Z-]+\s*(?:[\]:-]\s*)?", "", line.strip())
+    return bool(re.match(r"^(?:TASK ERROR\b|(?:ERROR|FATAL|CRITICAL|FAILED)(?:\s*:|\s+-|$)|"
+                         r"\[(?:ERROR|FATAL|CRITICAL)\])", text, re.IGNORECASE))
+
+
+def close_logger(logger: logging.Logger) -> None:
+    """Flush and close every handler so tests and repeated runs release files."""
+    for handler in logger.handlers[:]:
+        handler.close()
+        logger.removeHandler(handler)
+
+
+def build_logger(verbose: bool, log_dir: Optional[Path] = None) -> logging.Logger:
+    """Create per-run full/error logs beneath the script, independent of cwd."""
     logger = logging.getLogger("pbs_sync_verifyjob_gc_mqtt")
+    close_logger(logger)
     logger.setLevel(logging.DEBUG)
-    logger.handlers.clear()
     logger.propagate = False
-
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG if verbose else logging.INFO)
-    ch.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    logger.addHandler(ch)
-
+    folder = log_dir if log_dir is not None else SCRIPT_DIR / "logs"
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    stem = datetime.now(timezone.utc).strftime("pbs-maintenance-%Y%m%dT%H%M%S.%fZ")
+    stem += f"-{os.getpid()}-{uuid4().hex[:8]}"
+    logger.log_file = folder / (stem + ".log")
+    logger.err_file = folder / (stem + ".err")
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    try:
+        console = logging.StreamHandler()
+        console.setLevel(logging.DEBUG if verbose else logging.INFO)
+        console.addFilter(ConsoleFilter())
+        logger.addHandler(console)
+        full = PrivateFileHandler(logger.log_file, encoding="utf-8")
+        full.setLevel(logging.DEBUG)
+        logger.addHandler(full)
+        errors = PrivateFileHandler(logger.err_file, encoding="utf-8", delay=True)
+        errors.setLevel(logging.ERROR)
+        logger.addHandler(errors)
+        for handler in logger.handlers:
+            handler.setFormatter(formatter)
+    except OSError:
+        close_logger(logger)
+        raise
     return logger
 
 
@@ -313,212 +380,244 @@ def _build_manual_prune_argv(args: argparse.Namespace) -> List[str]:
     return argv
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="Run selected PBS steps (sync/verify/prune/gc); publish MQTT on success or failure."
-    )
-
-    # Steps selection (order is fixed: sync -> verify -> prune -> gc)
-    ap.add_argument("--no-sync", action="store_true", help="Skip sync-job step.")
-    ap.add_argument("--no-verify", action="store_true", help="Skip verify-job step.")
-    ap.add_argument("--no-prune", action="store_true", help="Skip prune step.")
-    ap.add_argument("--no-gc", action="store_true", help="Skip garbage-collection step.")
-
-    # IDs / datastore (only required if their step is enabled)
-    ap.add_argument("--sync-job", default=None, help="PBS sync job ID (e.g. s-xxxx...).")
-    ap.add_argument("--verify-job", default=None, help="PBS verify job ID (e.g. v-xxxx...).")
-    ap.add_argument("--datastore", default=None, help="Datastore name for garbage-collection start.")
-
-    # Prune mode:
-    #   --prune (manual prune + keep-* retention)
-    #   --prune-job <id> (run PBS prune job)
-    prune_mode = ap.add_mutually_exclusive_group(required=False)
-    prune_mode.add_argument(
-        "--prune",
-        action="store_true",
-        help="Use manual prune with keep-* retention (requires --prune-datastore + at least one keep-*).",
-    )
-    prune_mode.add_argument(
-        "--prune-job",
-        default=None,
-        help="Use PBS prune-job instead of manual retention (e.g. p-xxxx...).",
-    )
-
-    # Manual prune settings (used only with --prune)
-    ap.add_argument("--prune-datastore", default=None, help="Datastore name to prune (manual prune).")
-    ap.add_argument("--prune-keep-last", type=int, default=None, help="(manual prune) Keep last N backups.")
-    ap.add_argument("--prune-keep-daily", type=int, default=None, help="(manual prune) Keep daily N backups.")
-    ap.add_argument("--prune-keep-weekly", type=int, default=None, help="(manual prune) Keep weekly N backups.")
-    ap.add_argument("--prune-keep-monthly", type=int, default=None, help="(manual prune) Keep monthly N backups.")
-    ap.add_argument("--prune-keep-yearly", type=int, default=None, help="(manual prune) Keep yearly N backups.")
-
-    # MQTT
-    ap.add_argument("--mqtt-host", required=True)
-    ap.add_argument("--mqtt-port", type=int, default=1883)
-    ap.add_argument("--mqtt-topic", required=True)
-    ap.add_argument("--mqtt-username", default=None)
-    ap.add_argument("--mqtt-password", default=None)
-    ap.add_argument("--mqtt-tls", action="store_true")
-    ap.add_argument("--mqtt-cafile", default=None)
-    ap.add_argument("--mqtt-insecure", action="store_true")
-    ap.add_argument("--mqtt-client-id", default=None)
-    ap.add_argument("--mqtt-retain", action="store_true", help="Publish MQTT message with retain=true.")
-
-    # Payload sizing for failures
-    ap.add_argument(
-        "--mqtt-max-output-chars",
-        type=int,
-        default=4000,
-        help="Max chars to include from stdout/stderr in failure payload (tail).",
-    )
-
-    ap.add_argument("-v", "--verbose", action="store_true")
-    args = ap.parse_args()
-
-    logger = build_logger(args.verbose)
-    env = os.environ.copy()
-
-    run_sync = not args.no_sync
-    run_verify = not args.no_verify
-    run_prune = not args.no_prune
-    run_gc = not args.no_gc
-
-    steps = {"sync": run_sync, "verify": run_verify, "prune": run_prune, "gc": run_gc}
-
-    if not any(steps.values()):
-        logger.error("Nothing to do: you disabled sync, verify, prune, and gc.")
-        return 2
-
-    # Validate required args based on enabled steps
-    if run_sync and not args.sync_job:
-        logger.error("Missing --sync-job (required unless you pass --no-sync)")
-        return 2
-    if run_verify and not args.verify_job:
-        logger.error("Missing --verify-job (required unless you pass --no-verify)")
-        return 2
-    if run_gc and not args.datastore:
-        logger.error("Missing --datastore (required unless you pass --no-gc)")
-        return 2
-
-    # Prune validation (only if prune step enabled)
-    if run_prune:
-        # Must choose exactly one prune mode: manual (--prune) OR prune-job (--prune-job)
-        if bool(args.prune) == bool(args.prune_job):
-            logger.error(
-                "Prune enabled, but prune mode is invalid. Choose exactly one: "
-                "--prune (manual retention) OR --prune-job <id>."
-            )
-            return 2
-
-        if args.prune:
-            if not args.prune_datastore:
-                logger.error("Manual prune selected: missing --prune-datastore")
-                return 2
-            if not _any_keep_set(args):
-                logger.error(
-                    "Manual prune selected but no retention set. Provide at least one of: "
-                    "--prune-keep-last/--prune-keep-daily/--prune-keep-weekly/--prune-keep-monthly/--prune-keep-yearly"
-                )
-                return 2
-        else:
-            # prune-job mode
-            if not args.prune_job:
-                logger.error("Prune-job selected: missing --prune-job <id>")
-                return 2
-
-    hostname = socket.gethostname()
-    client_id = args.mqtt_client_id or f"pbs-maint-{hostname}-{os.getpid()}"
-
-    def publish_event(payload: Dict[str, Any]) -> None:
-        mqtt_publish(
-            host=args.mqtt_host,
-            port=args.mqtt_port,
-            topic=args.mqtt_topic,
-            payload=payload,
-            username=args.mqtt_username,
-            password=args.mqtt_password,
-            tls=args.mqtt_tls,
-            cafile=args.mqtt_cafile,
-            insecure=args.mqtt_insecure,
-            client_id=client_id,
-            retain=args.mqtt_retain,
-            logger=logger,
-        )
-
-    def publish_failure(step_name: str, result: CmdResult) -> None:
-        payload = base_payload(hostname=hostname, steps=steps, args=args)
-        payload.update(
-            {
-                "event": "pbs_maintenance_failed",
-                "failed_step": step_name,
-                "returncode": result.returncode,
-                "command": " ".join(result.argv),
-                "stdout_tail": tail_text(result.stdout, args.mqtt_max_output_chars),
-                "stderr_tail": tail_text(result.stderr, args.mqtt_max_output_chars),
-            }
-        )
-        try:
-            publish_event(payload)
-        except Exception as e:
-            logger.error("Failed to publish MQTT failure message: %s", e)
-
-    # Execute selected steps in order; on first failure publish MQTT failure and exit.
-
-    if run_sync:
-        r = run_cmd_stream(
-            ["proxmox-backup-manager", "sync-job", "run", args.sync_job],
-            env=env,
-            logger=logger,
-        )
-        if r.returncode != 0:
-            publish_failure("sync", r)
-            return 1
-
-    if run_verify:
-        r = run_cmd_stream(
-            ["proxmox-backup-manager", "verify-job", "run", args.verify_job],
-            env=env,
-            logger=logger,
-        )
-        if r.returncode != 0:
-            publish_failure("verify", r)
-            return 1
-
-    if run_prune:
-        if args.prune_job:
-            # Prune job mode
-            prune_argv = ["proxmox-backup-manager", "prune-job", "run", args.prune_job]
-        else:
-            # Manual retention mode
-            prune_argv = _build_manual_prune_argv(args)
-
-        r = run_cmd_stream(prune_argv, env=env, logger=logger)
-        if r.returncode != 0:
-            publish_failure("prune", r)
-            return 1
-
-    if run_gc:
-        r = run_cmd_stream(
-            ["proxmox-backup-manager", "garbage-collection", "start", args.datastore],
-            env=env,
-            logger=logger,
-        )
-        if r.returncode != 0:
-            publish_failure("gc", r)
-            return 1
-
-    # Success MQTT
-    payload = base_payload(hostname=hostname, steps=steps, args=args)
-    payload.update({"event": "pbs_maintenance_success"})
-
+def load_config(path: Path) -> Dict[str, Any]:
+    """Read TOML, reject unknown/mistyped settings, and fill documented defaults."""
+    if tomllib is None:
+        raise ValueError("Python 3.9/3.10 needs tomli: install requirements.txt, or use Python 3.11+.")
     try:
-        publish_event(payload)
-    except Exception as e:
-        logger.error("All selected steps succeeded, but MQTT publish failed: %s", e)
-        return 1
+        with path.open("rb") as stream:
+            supplied = tomllib.load(stream)
+    except (OSError, ValueError) as exc:
+        # Avoid echoing TOML source fragments which may contain credentials.
+        raise ValueError(f"Cannot read valid TOML from {path} ({type(exc).__name__}).") from exc
+    config = deepcopy(DEFAULT_CONFIG)
+    for section, options in supplied.items():
+        if section not in config or not isinstance(options, dict):
+            raise ValueError(f"Unknown section or invalid table: {section}.")
+        for key, value in options.items():
+            if key not in config[section]:
+                raise ValueError(f"Unknown setting: {section}.{key}.")
+            if section == "prune" and key.startswith("keep_"):
+                valid = (type(value) is int and value >= 0) or value == ""
+            else:
+                valid = type(value) is type(config[section][key])
+            if not valid:
+                raise ValueError(f"Invalid type/value for {section}.{key}; see config.toml comments.")
+            config[section][key] = value
+    # Resolve optional CA files relative to the config, never to the caller's cwd.
+    for channel in ("mqtt", "email"):
+        value = config[channel]["cafile"]
+        if value:
+            candidate = Path(value).expanduser()
+            config[channel]["cafile"] = str(candidate if candidate.is_absolute() else path.parent / candidate)
+    return config
 
-    logger.info("All selected steps succeeded; MQTT sent.")
+
+def config_to_args(config: Dict[str, Any]) -> argparse.Namespace:
+    """Adapt TOML to the original prune/payload helpers instead of duplicating them."""
+    args = argparse.Namespace(
+        sync_job=config["jobs"]["sync_job"], verify_job=config["jobs"]["verify_job"],
+        datastore=config["jobs"]["gc_datastore"], prune=config["prune"]["mode"] == "manual",
+        prune_job=config["prune"]["job"] if config["prune"]["mode"] == "job" else None,
+        prune_datastore=config["prune"]["datastore"],
+    )
+    for period in ("last", "daily", "weekly", "monthly", "yearly"):
+        value = config["prune"]["keep_" + period]
+        setattr(args, "prune_keep_" + period, None if value == "" else value)
+    return args
+
+
+def notification_channels(config: Dict[str, Any]) -> Dict[str, bool]:
+    """Dry-run opt-ins are independent of normal-run channel enable switches."""
+    if config["dry_run"]["enabled"]:
+        return {name: config["dry_run"]["send_" + name] for name in ("mqtt", "email")}
+    return {name: config[name]["enabled"] for name in ("mqtt", "email")}
+
+
+def validate_config(config: Dict[str, Any], args: argparse.Namespace) -> None:
+    """Validate selection and active notifications before maintenance or connections."""
+    steps = config["steps"]
+    if not any(steps.values()):
+        raise ValueError("Nothing to do: enable at least one setting in [steps].")
+    for step, key in (("sync", "sync_job"), ("verify", "verify_job"), ("gc", "gc_datastore")):
+        if steps[step] and not config["jobs"][key].strip():
+            raise ValueError(f"jobs.{key} is required when steps.{step} is true.")
+    if config["prune"]["mode"] not in ("job", "manual"):
+        raise ValueError('prune.mode must be "job" or "manual".')
+    if steps["prune"]:
+        if args.prune:
+            if not args.prune_datastore.strip() or not _any_keep_set(args):
+                raise ValueError("Manual prune requires prune.datastore and at least one prune.keep_* value.")
+            if config["prune"]["job"]:
+                raise ValueError('Clear prune.job when selecting prune.mode = "manual".')
+        elif not args.prune_job.strip():
+            raise ValueError('prune.job is required when prune.mode = "job" and pruning is enabled.')
+    channels = notification_channels(config)
+    for channel in ("mqtt", "email"):
+        settings = config[channel]
+        if not 1 <= settings["port"] <= 65535 or settings["timeout_sec"] <= 0:
+            raise ValueError(f"{channel}.port must be 1..65535 and timeout_sec must be positive.")
+        if channels[channel]:
+            if not settings["host"].strip():
+                raise ValueError(f"{channel}.host is required for the selected notification channel.")
+            if settings["password"] and not settings["username"]:
+                raise ValueError(f"{channel}.password requires {channel}.username.")
+            if settings["cafile"] and not Path(settings["cafile"]).is_file():
+                raise ValueError(f"{channel}.cafile does not name an existing certificate file.")
+    if config["mqtt"]["max_output_chars"] <= 0:
+        raise ValueError("mqtt.max_output_chars must be a positive integer.")
+    if channels["mqtt"]:
+        if not config["mqtt"]["topic"] or any(c in config["mqtt"]["topic"] for c in ("+", "#", "\x00")):
+            raise ValueError("mqtt.topic must be a nonempty publish topic without wildcard/NUL characters.")
+        if mqtt is None:
+            raise ValueError("MQTT sending requires paho-mqtt; install requirements.txt first.")
+    email = config["email"]
+    if email["security"] not in ("starttls", "ssl", "none"):
+        raise ValueError('email.security must be "starttls", "ssl", or "none".')
+    if any(type(item) is not str for item in email["to_addresses"]):
+        raise ValueError("email.to_addresses must be an array of address strings.")
+    if channels["email"]:
+        addresses = [email["from_address"]] + email["to_addresses"]
+        if not email["to_addresses"] or any(not a.strip() or "@" not in a or any(c in a for c in "\r\n") for a in addresses):
+            raise ValueError("Email requires a from_address and nonempty to_addresses with valid mailbox addresses.")
+        if any(c in email["subject_prefix"] for c in "\r\n"):
+            raise ValueError("email.subject_prefix must be a single line.")
+
+
+def build_commands(args: argparse.Namespace, steps: Dict[str, bool]) -> List[tuple]:
+    """One plan supplies both dry-run display and actual ordered execution."""
+    commands = []
+    if steps["sync"]:
+        commands.append(("sync", ["proxmox-backup-manager", "sync-job", "run", args.sync_job]))
+    if steps["verify"]:
+        commands.append(("verify", ["proxmox-backup-manager", "verify-job", "run", args.verify_job]))
+    if steps["prune"]:
+        argv = (["proxmox-backup-manager", "prune-job", "run", args.prune_job]
+                if args.prune_job else _build_manual_prune_argv(args))
+        commands.append(("prune", argv))
+    if steps["gc"]:
+        commands.append(("gc", ["proxmox-backup-manager", "garbage-collection", "start", args.datastore]))
+    return commands
+
+
+def email_send(settings: Dict[str, Any], payload: Dict[str, Any], logger: logging.Logger) -> None:
+    """Send an outcome through SMTP with verified TLS when selected; no attachments."""
+    message = EmailMessage()
+    message["From"] = settings["from_address"]
+    message["To"] = ", ".join(settings["to_addresses"])
+    label = "DRY RUN" if payload["dry_run"] else ("FAILED" if payload["event"] == "pbs_maintenance_failed" else "SUCCESS")
+    message["Subject"] = f'{settings["subject_prefix"]} {label} - {payload["hostname"]}'
+    message.set_content(json.dumps(payload, ensure_ascii=False, indent=2))
+    context = ssl.create_default_context(cafile=settings["cafile"] or None) if settings["security"] != "none" else None
+    kwargs = dict(host=settings["host"], port=settings["port"], timeout=settings["timeout_sec"])
+    connection = (smtplib.SMTP_SSL(context=context, **kwargs) if settings["security"] == "ssl"
+                  else smtplib.SMTP(**kwargs))
+    with connection as client:
+        if settings["security"] == "starttls":
+            client.ehlo()
+            client.starttls(context=context)
+            client.ehlo()
+        if settings["username"]:
+            client.login(settings["username"], settings["password"])
+        refused = client.send_message(message, from_addr=settings["from_address"], to_addrs=settings["to_addresses"])
+        if refused:
+            raise RuntimeError("SMTP refused one or more recipients.")
+    logger.info("Email accepted by SMTP server.")
+
+
+def send_notifications(config: Dict[str, Any], payload: Dict[str, Any], logger: logging.Logger) -> bool:
+    """Attempt each selected channel independently; one failure must not suppress the other."""
+    channels = notification_channels(config)
+    success = True
+    if channels["mqtt"]:
+        settings = config["mqtt"]
+        try:
+            mqtt_publish(
+                host=settings["host"], port=settings["port"], topic=settings["topic"], payload=payload,
+                username=settings["username"] or None, password=settings["password"] or None,
+                tls=settings["tls"], cafile=settings["cafile"] or None, insecure=settings["insecure"],
+                client_id=settings["client_id"] or f"pbs-maint-{socket.gethostname()}-{os.getpid()}",
+                # Never overwrite a retained live status with a rehearsal event.
+                retain=settings["retain"] and not payload["dry_run"], logger=logger,
+                timeout_sec=settings["timeout_sec"],
+            )
+        except Exception as exc:
+            logger.error("MQTT notification failed (%s). Check broker, credentials and TLS settings.", type(exc).__name__)
+            success = False
+    if channels["email"]:
+        try:
+            email_send(config["email"], payload, logger)
+        except Exception as exc:
+            logger.error("Email notification failed (%s). Check SMTP, recipients, credentials and TLS settings.", type(exc).__name__)
+            success = False
+    return success
+
+
+def run_workflow(config: Dict[str, Any], args: argparse.Namespace, logger: logging.Logger) -> int:
+    """Run or preview the validated plan, retaining the original failure-stop semantics."""
+    steps = config["steps"]
+    commands = build_commands(args, steps)
+    payload = base_payload(hostname=socket.gethostname(), steps=steps, args=args)
+    payload.update(version=__version__, dry_run=config["dry_run"]["enabled"],
+                   log_file=str(logger.log_file), err_file=None)
+    if payload["dry_run"]:
+        for step, argv in commands:
+            logger.info("DRY RUN [%s]: %s", step, shlex.join(argv))
+        payload.update(event="pbs_maintenance_dry_run", commands=[argv for _, argv in commands])
+        logger.info("Dry run: no PBS commands executed. Notification opt-ins: %s", notification_channels(config))
+        return 0 if send_notifications(config, payload, logger) else 1
+    for step, argv in commands:
+        try:
+            result = run_cmd_stream(argv, env=os.environ.copy(), logger=logger)
+        except OSError as exc:
+            logger.error("Could not start %s (%s).", step, type(exc).__name__)
+            result = CmdResult(argv, 127, "", f"Could not start command ({type(exc).__name__}).")
+        if result.returncode != 0:
+            logger.error("Maintenance failed at %s (rc=%s); later steps skipped.", step, result.returncode)
+            payload.update(event="pbs_maintenance_failed", failed_step=step, returncode=result.returncode,
+                           command=shlex.join(result.argv),
+                           stdout_tail=tail_text(result.stdout, config["mqtt"]["max_output_chars"]),
+                           stderr_tail=tail_text(result.stderr, config["mqtt"]["max_output_chars"]),
+                           time_utc=utc_now_iso(), err_file=str(logger.err_file))
+            send_notifications(config, payload, logger)
+            return 1
+    payload.update(event="pbs_maintenance_success", time_utc=utc_now_iso(),
+                   err_file=str(logger.err_file) if logger.err_file.exists() else None)
+    if not send_notifications(config, payload, logger):
+        return 1
+    logger.info("All selected steps succeeded; selected notifications completed.")
     return 0
+
+
+def main() -> int:
+    """Load script-local configuration and logs; operational settings live in TOML."""
+    parser = argparse.ArgumentParser(description="PBS maintenance configured by config.toml beside the script.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}",
+                        help="Show version and exit without configuration, logs or connections.")
+    parser.add_argument("--config", type=Path, default=SCRIPT_DIR / "config.toml", metavar="PATH",
+                        help="Alternate TOML file (relative to current directory). Default: config.toml beside the script.")
+    cli = parser.parse_args()
+    try:
+        logger = build_logger(False)
+    except OSError as exc:
+        print(f"ERROR: Cannot create logs beside the script ({type(exc).__name__}); no maintenance started.", file=sys.stderr)
+        return 2
+    try:
+        logger.info("PBS maintenance %s; full log: %s", __version__, logger.log_file)
+        try:
+            config = load_config(cli.config.expanduser().resolve())
+            logger.handlers[0].setLevel(logging.DEBUG if config["logging"]["verbose"] else logging.INFO)
+            logger.debug("Configuration loaded from %s; selected steps: %s", cli.config, config["steps"])
+            args = config_to_args(config)
+            validate_config(config, args)
+            if not config["dry_run"]["enabled"] and shutil.which("proxmox-backup-manager") is None:
+                raise ValueError("proxmox-backup-manager is not in PATH; real runs require the PBS host.")
+        except ValueError as exc:
+            logger.error("Configuration/preflight error: %s", exc)
+            return 2
+        return run_workflow(config, args, logger)
+    finally:
+        close_logger(logger)
 
 
 if __name__ == "__main__":
