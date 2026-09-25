@@ -1,0 +1,49 @@
+PBS maintenance 0.0.7 — command reference
+
+All operational options are configured in ../config.toml. Each has an explanatory
+comment there; README.md documents behavior, defaults, examples and dependencies.
+This text file is documentation only, not input to the application.
+
+Run from the project directory (after installing requirements.txt and editing config):
+  .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py'
+    Read config.toml beside the script; validate; preview or execute; write logs/.
+
+  .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' -c /path/site.toml
+  .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' --config /path/site.toml
+    -c and --config are exact equivalents. Use another TOML file. Relative paths
+    are relative to the working directory. Logs always go beside the script.
+    Relative mqtt.cafile and sendmail.path values use the config directory.
+
+  .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' -h
+  .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' --help
+    Show every CLI flag plus config/log path behavior; no config loading, logs,
+    maintenance or notifications.
+
+  .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' --version
+    Show version; no config loading, logs, maintenance or notifications.
+
+Dry-run: set [dry_run] enabled=true in config.toml.
+Optional real dry-run sends: set send_mqtt=true and/or send_email=true in that table.
+For real maintenance set [dry_run] enabled=false.
+Real-run transport master switches are [mqtt] enabled and [email] enabled.
+Successful real-run sends are separately opt-in with [mqtt] on_success and
+[email] on_success (both default false). Failures still send whenever the
+corresponding master channel is enabled.
+Default dry-run sends nothing. Config targets are required even in dry-run.
+Email delivery uses local sendmail/Postfix; [sendmail] path can override auto-detection.
+
+Offline tests:
+  python3 -B -m unittest discover -s tests -v
+    No real PBS, MQTT or sendmail delivery; temporary log/config files are cleaned up.
+
+Create local config when missing:
+  test -e config.toml || cp config-example.toml config.toml
+    Copy the commented example without replacing an existing local config.
+
+Git ignores config*.* except config-example.toml. For a previously tracked config:
+  git rm --cached -- config.toml
+    Remove the file from the Git index only; retain it locally. Does not erase history.
+
+Installation layout:
+  Keep the pbs_maintenance/ package beside the original launcher.
+  Modules are imported automatically; invoke the launcher with the commands above.
