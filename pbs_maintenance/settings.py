@@ -6,6 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Dict, Any
 
+from . import mail as mail_client
 from . import mqtt as mqtt_client
 
 try:
@@ -28,9 +29,9 @@ DEFAULT_CONFIG = {
              "username": "", "password": "", "tls": False, "cafile": "",
              "insecure": False, "client_id": "", "retain": False,
              "max_output_chars": 4000, "timeout_sec": 15},
-    "email": {"enabled": False, "host": "", "port": 587, "security": "starttls",
-              "username": "", "password": "", "from_address": "", "to_addresses": [],
-              "subject_prefix": "[PBS maintenance]", "cafile": "", "timeout_sec": 15},
+    "email": {"enabled": False, "from_address": "", "to_addresses": [],
+              "subject_prefix": "[PBS maintenance]"},
+    "sendmail": {"path": ""},
 }
 
 
@@ -58,12 +59,15 @@ def load_config(path: Path) -> Dict[str, Any]:
             if not valid:
                 raise ValueError(f"Invalid type/value for {section}.{key}; see config.toml comments.")
             config[section][key] = value
-    # Resolve optional CA files relative to the config, never to the caller's cwd.
-    for channel in ("mqtt", "email"):
-        value = config[channel]["cafile"]
-        if value:
-            candidate = Path(value).expanduser()
-            config[channel]["cafile"] = str(candidate if candidate.is_absolute() else path.parent / candidate)
+    # Resolve optional local file paths relative to the config, never to the caller's cwd.
+    value = config["mqtt"]["cafile"]
+    if value:
+        candidate = Path(value).expanduser()
+        config["mqtt"]["cafile"] = str(candidate if candidate.is_absolute() else path.parent / candidate)
+    value = config["sendmail"]["path"]
+    if value:
+        candidate = Path(value).expanduser()
+        config["sendmail"]["path"] = str(candidate if candidate.is_absolute() else path.parent / candidate)
     return config
 
 
@@ -120,27 +124,23 @@ def validate_config(config: Dict[str, Any], args: argparse.Namespace) -> None:
         elif not args.prune_job.strip():
             raise ValueError('prune.job is required when prune.mode = "job" and pruning is enabled.')
     channels = notification_channels(config)
-    for channel in ("mqtt", "email"):
-        settings = config[channel]
-        if not 1 <= settings["port"] <= 65535 or settings["timeout_sec"] <= 0:
-            raise ValueError(f"{channel}.port must be 1..65535 and timeout_sec must be positive.")
-        if channels[channel]:
-            if not settings["host"].strip():
-                raise ValueError(f"{channel}.host is required for the selected notification channel.")
-            if settings["password"] and not settings["username"]:
-                raise ValueError(f"{channel}.password requires {channel}.username.")
-            if settings["cafile"] and not Path(settings["cafile"]).is_file():
-                raise ValueError(f"{channel}.cafile does not name an existing certificate file.")
-    if config["mqtt"]["max_output_chars"] <= 0:
+    mqtt = config["mqtt"]
+    if not 1 <= mqtt["port"] <= 65535 or mqtt["timeout_sec"] <= 0:
+        raise ValueError("mqtt.port must be 1..65535 and timeout_sec must be positive.")
+    if mqtt["max_output_chars"] <= 0:
         raise ValueError("mqtt.max_output_chars must be a positive integer.")
     if channels["mqtt"]:
-        if not config["mqtt"]["topic"] or any(c in config["mqtt"]["topic"] for c in ("+", "#", "\x00")):
+        if not mqtt["host"].strip():
+            raise ValueError("mqtt.host is required for the selected notification channel.")
+        if mqtt["password"] and not mqtt["username"]:
+            raise ValueError("mqtt.password requires mqtt.username.")
+        if mqtt["cafile"] and not Path(mqtt["cafile"]).is_file():
+            raise ValueError("mqtt.cafile does not name an existing certificate file.")
+        if not mqtt["topic"] or any(c in mqtt["topic"] for c in ("+", "#", "\x00")):
             raise ValueError("mqtt.topic must be a nonempty publish topic without wildcard/NUL characters.")
         if mqtt_client.mqtt is None:
             raise ValueError("MQTT sending requires paho-mqtt; install requirements.txt first.")
     email = config["email"]
-    if email["security"] not in ("starttls", "ssl", "none"):
-        raise ValueError('email.security must be "starttls", "ssl", or "none".')
     if any(type(item) is not str for item in email["to_addresses"]):
         raise ValueError("email.to_addresses must be an array of address strings.")
     if channels["email"]:
@@ -149,4 +149,6 @@ def validate_config(config: Dict[str, Any], args: argparse.Namespace) -> None:
             raise ValueError("Email requires a from_address and nonempty to_addresses with valid mailbox addresses.")
         if any(c in email["subject_prefix"] for c in "\r\n"):
             raise ValueError("email.subject_prefix must be a single line.")
+        if mail_client.find_sendmail(config["sendmail"]["path"]) is None:
+            raise ValueError("Email sending requires sendmail; install Postfix/sendmail or set sendmail.path.")
 

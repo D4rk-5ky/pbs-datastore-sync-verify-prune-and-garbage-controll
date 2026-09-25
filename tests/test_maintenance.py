@@ -1,4 +1,4 @@
-"""Offline regression tests. No real PBS, MQTT or SMTP connections are made."""
+"""Offline regression tests. No real PBS, MQTT or sendmail delivery is performed."""
 import contextlib
 from copy import deepcopy
 import importlib.util
@@ -46,7 +46,7 @@ class MaintenanceTests(unittest.TestCase):
         self.config['prune']['job'] = 'prune-test'
         self.config['dry_run']['enabled'] = False
         self.config['mqtt'].update(host='mqtt.invalid', topic='test/status')
-        self.config['email'].update(host='smtp.invalid', from_address='pbs@example.com',
+        self.config['email'].update(from_address='pbs@example.com',
                                     to_addresses=['admin@example.com'])
 
     def run_app(self, config=None, fail_step=None, mqtt_error=False, email_error=False, launch_error=False, raw=None):
@@ -71,7 +71,7 @@ class MaintenanceTests(unittest.TestCase):
             if mqtt_error:
                 raise RuntimeError('test broker unavailable')
 
-        def email_send(settings, payload, logger):
+        def email_send(email_settings, sendmail_settings, payload, logger):
             email_events.append(deepcopy(payload))
             if email_error:
                 raise RuntimeError('test mail unavailable')
@@ -83,6 +83,7 @@ class MaintenanceTests(unittest.TestCase):
              patch.object(maintenance, 'run_cmd_stream', side_effect=run), \
              patch.object(mqtt_client, 'mqtt_publish', side_effect=mqtt_send), \
              patch.object(mail, 'email_send', side_effect=email_send), \
+             patch.object(mail, 'find_sendmail', return_value='/usr/sbin/sendmail'), \
              patch.object(app.shutil, 'which', return_value='/test/proxmox-backup-manager') as which, \
              patch.object(maintenance.subprocess, 'Popen', side_effect=AssertionError('No child allowed in mocked workflow')), \
              contextlib.redirect_stderr(io.StringIO()):
@@ -125,7 +126,7 @@ class MaintenanceTests(unittest.TestCase):
                  ('mqtt', 'port', True), ('mqtt', 'max_output_chars', 0), ('mqtt', 'timeout_sec', -1),
                  ('mqtt', 'host', ''), ('mqtt', 'topic', 'bad/#'), ('prune', 'keep_last', -1),
                  ('prune', 'keep_last', True), ('steps', 'sync', 'false'), ('logging', 'typo', True),
-                 ('email', 'to_addresses', [False]), ('email', 'security', 'maybe')]
+                 ('email', 'to_addresses', [False]), ('sendmail', 'path', 123)]
         for section, key, value in cases:
             with self.subTest(section=section, key=key, value=value):
                 cfg = deepcopy(self.config); cfg[section][key] = value
@@ -183,7 +184,6 @@ class MaintenanceTests(unittest.TestCase):
         self.config['dry_run']['enabled'] = True
         self.config['email']['enabled'] = True
         self.config['mqtt']['host'] = ''
-        self.config['email']['host'] = ''
         self.assertEqual(self.run_app(), (0, [], [], []))
         log = next((self.folder/'logs').glob('*.log')).read_text()
         self.assertIn('DRY RUN [sync]', log)
@@ -227,10 +227,10 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_help_and_version_require_no_configuration(self):
         cases = [
-            ('--help', ('--config', 'operational settings are not CLI flags',
+            ('--help', ('-c, --config PATH', 'operational settings are not CLI flags',
                         'relative paths resolve from the current working directory',
                         'Logs still go beside the launcher')),
-            ('--version', ('0.0.5',)),
+            ('--version', ('0.0.6',)),
         ]
         for flag, expected_texts in cases:
             with self.subTest(flag=flag), patch.object(sys, 'argv', [str(SCRIPT), flag]), \
@@ -297,13 +297,13 @@ class MaintenanceTests(unittest.TestCase):
         with (SCRIPT.parent/'config-example.toml').open('rb') as stream:
             self.assertEqual(settings.tomllib.load(stream), settings.DEFAULT_CONFIG)
 
-    def test_config_relative_certificate_paths(self):
+    def test_config_relative_file_paths(self):
         self.config['mqtt']['cafile'] = 'mqtt.pem'
-        self.config['email']['cafile'] = 'smtp.pem'
+        self.config['sendmail']['path'] = 'bin/sendmail'
         path = self.folder/'custom.toml'; write_toml(path, self.config)
         loaded = settings.load_config(path)
         self.assertEqual(loaded['mqtt']['cafile'], str(self.folder/'mqtt.pem'))
-        self.assertEqual(loaded['email']['cafile'], str(self.folder/'smtp.pem'))
+        self.assertEqual(loaded['sendmail']['path'], str(self.folder/'bin/sendmail'))
 
     def test_script_local_paths_ignore_caller_working_directory(self):
         # main has no --config argument in run_app; SCRIPT_DIR is deliberately a
@@ -329,53 +329,54 @@ class MaintenanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'tomli'):
                 settings.load_config(self.folder/'config.toml')
 
-    def test_smtp_modes_authentication_and_subject(self):
-        for security in ('starttls', 'ssl', 'none'):
-            with self.subTest(security=security), patch.object(mail.smtplib, 'SMTP') as plain, \
-                 patch.object(mail.smtplib, 'SMTP_SSL') as encrypted:
-                factory = encrypted if security == 'ssl' else plain
-                client = factory.return_value.__enter__.return_value
-                client.send_message.return_value = {}
-                settings = deepcopy(self.config['email'])
-                settings.update(security=security, username='user', password='secret')
-                payload = dict(dry_run=True, event='pbs_maintenance_dry_run', hostname='pbs-test')
-                mail.email_send(settings, payload, logging.getLogger('test'))
-                client.login.assert_called_once_with('user', 'secret')
-                message = client.send_message.call_args.args[0]
-                self.assertIn('DRY RUN', message['Subject'])
-                self.assertEqual(json.loads(message.get_content()), payload)
-                self.assertNotIn('secret', message.as_string())
-                if security == 'starttls':
-                    client.starttls.assert_called_once()
-                    self.assertTrue(client.starttls.call_args.kwargs['context'].check_hostname)
-                else:
-                    client.starttls.assert_not_called()
-                if security == 'ssl':
-                    self.assertTrue(encrypted.call_args.kwargs['context'].check_hostname)
-                    plain.assert_not_called()
-                else:
-                    encrypted.assert_not_called()
+    def test_sendmail_message_and_command(self):
+        email_settings = deepcopy(self.config['email'])
+        sendmail_settings = {'path': '/custom/sendmail'}
+        payload = dict(dry_run=True, event='pbs_maintenance_dry_run', hostname='pbs-test')
+        logger = logging.getLogger('test')
+        completed = subprocess.CompletedProcess(['/custom/sendmail', '-t'], 0, b'', b'')
+        with patch.object(mail, 'find_sendmail', return_value='/custom/sendmail') as finder, \
+             patch.object(mail.subprocess, 'run', return_value=completed) as run:
+            mail.email_send(email_settings, sendmail_settings, payload, logger)
+        finder.assert_called_once_with('/custom/sendmail')
+        run.assert_called_once()
+        argv = run.call_args.args[0]
+        self.assertEqual(argv, ['/custom/sendmail', '-t'])
+        self.assertTrue(run.call_args.kwargs['check'])
+        self.assertTrue(run.call_args.kwargs['capture_output'])
+        message_bytes = run.call_args.kwargs['input']
+        text = message_bytes.decode(errors='replace')
+        self.assertIn('Subject: [PBS maintenance] DRY RUN - pbs-test', text)
+        self.assertIn('From: pbs@example.com', text)
+        self.assertIn('To: admin@example.com', text)
+        self.assertIn('pbs_maintenance_dry_run', text)
 
-    def test_smtp_partial_refusal_is_an_error(self):
-        settings = deepcopy(self.config['email']); settings['security'] = 'none'
-        with patch.object(mail.smtplib, 'SMTP') as smtp:
-            smtp.return_value.__enter__.return_value.send_message.return_value = {'bad@example.com': (550, b'no')}
-            with self.assertRaisesRegex(RuntimeError, 'refused'):
-                mail.email_send(settings, dict(dry_run=False, event='pbs_maintenance_success', hostname='pbs'),
-                               logging.getLogger('test'))
+    def test_sendmail_nonzero_exit_is_an_error(self):
+        failure = subprocess.CalledProcessError(75, ['/usr/sbin/sendmail', '-t'], stderr=b'queue unavailable')
+        with patch.object(mail, 'find_sendmail', return_value='/usr/sbin/sendmail'), \
+             patch.object(mail.subprocess, 'run', side_effect=failure):
+            with self.assertRaisesRegex(RuntimeError, 'status 75'):
+                mail.email_send(self.config['email'], {'path': ''},
+                                dict(dry_run=False, event='pbs_maintenance_success', hostname='pbs'),
+                                logging.getLogger('test'))
 
-    def test_smtp_tls_failure_does_not_send_or_fallback(self):
-        settings = deepcopy(self.config['email'])
-        settings.update(username='user', password='secret')
-        with patch.object(mail.smtplib, 'SMTP') as smtp, patch.object(mail.smtplib, 'SMTP_SSL') as ssl:
-            client = smtp.return_value.__enter__.return_value
-            client.starttls.side_effect = RuntimeError('TLS failed')
-            with self.assertRaisesRegex(RuntimeError, 'TLS failed'):
-                mail.email_send(settings, dict(dry_run=True, event='pbs_maintenance_dry_run', hostname='pbs'),
-                               logging.getLogger('test'))
-            client.login.assert_not_called()
-            client.send_message.assert_not_called()
-            ssl.assert_not_called()
+    def test_find_sendmail_override_standard_paths_and_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            explicit = Path(folder) / 'sendmail'
+            explicit.write_text('#!/bin/sh\nexit 0\n')
+            explicit.chmod(0o700)
+            self.assertEqual(mail.find_sendmail(str(explicit)), str(explicit))
+            self.assertIsNone(mail.find_sendmail(str(Path(folder) / 'missing')))
+        with patch.object(Path, 'is_file', return_value=False), patch.object(mail.shutil, 'which', return_value='/path/sendmail'):
+            self.assertEqual(mail.find_sendmail(''), '/path/sendmail')
+
+    def test_active_email_requires_sendmail(self):
+        self.config['mqtt']['enabled'] = False
+        self.config['email']['enabled'] = True
+        with patch.object(mail, 'find_sendmail', return_value=None):
+            args = settings.config_to_args(self.config)
+            with self.assertRaisesRegex(ValueError, 'requires sendmail'):
+                settings.validate_config(self.config, args)
 
     def test_active_email_header_validation(self):
         self.config['email']['enabled'] = True
@@ -445,14 +446,15 @@ class MaintenanceTests(unittest.TestCase):
         config = caller / 'site.toml'
         write_toml(config, self.config)
         trace = Path(env['PBS_TEST_TRACE'])
-        for fail_step, expected in [('', ['sync-job', 'verify-job', 'prune-job', 'garbage-collection']),
-                                    ('verify-job', ['sync-job', 'verify-job'])]:
-            with self.subTest(fail_step=fail_step):
+        for fail_step, config_flag, expected in [
+                ('', '-c', ['sync-job', 'verify-job', 'prune-job', 'garbage-collection']),
+                ('verify-job', '--config', ['sync-job', 'verify-job'])]:
+            with self.subTest(fail_step=fail_step, config_flag=config_flag):
                 if trace.exists():
                     trace.unlink()
                 env['PBS_TEST_FAIL'] = fail_step
                 result = subprocess.run([sys.executable, '-B', str(runtime / SCRIPT.name),
-                                         '--config', 'site.toml'], cwd=caller, env=env,
+                                         config_flag, 'site.toml'], cwd=caller, env=env,
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 1 if fail_step else 0, result.stderr)
                 commands = [json.loads(line)[0] for line in trace.read_text().splitlines()]

@@ -4,6 +4,16 @@
 
 Use the single canonical filename `VERSIONING.md`. Do not create a case-only `versioning.md` duplicate: it conflicts on case-insensitive filesystems.
 
+## 0.0.6 — 2026-09-25
+
+- Add `-c PATH` as the exact short alias for the existing `--config PATH` selector. Both names feed the same argparse destination/type/default; relative paths still resolve from the caller working directory, and logs still stay beside the resolved launcher.
+- Replace direct SMTP email delivery with the same local sendmail/Postfix pattern used by the related Proxmox backup project. The app now builds an `EmailMessage` and invokes `[sendmail_bin, "-t"]` with the full message on stdin, `check=True`, and captured output; no shell is used.
+- Add sendmail discovery with an optional `[sendmail] path` override, then `/usr/sbin/sendmail`, `/usr/bin/sendmail`, and finally `sendmail` from `PATH`. Relative configured paths resolve from the TOML file directory.
+- Keep existing notification semantics: `[email] enabled` controls real-run mail, while `dry_run.send_email` independently controls dry-run mail. Active email now fails preflight before maintenance if no sendmail-compatible executable is available.
+- Remove obsolete SMTP host/port/security/login/password/CA/timeout settings from the current schema. Keep `[email] from_address`, `to_addresses`, and `subject_prefix`, and add `[sendmail] path`.
+- Update README.md for current sendmail-only behavior, config files, CLI examples, complete code map, tests, verification and release manifest. Preserve the supplied disclaimer text and all existing project paths.
+- Expand offline coverage for sendmail command construction, nonzero sendmail exit handling, executable discovery, active-email preflight, config-relative sendmail path resolution, and both `-c`/`--config` CLI forms.
+
 ## 0.0.5 — 2026-09-25
 
 - Audit the complete 0.0.4 archive before modification and keep the existing maintenance, validation, logging, notification, prune-safety, command ordering, and failure-stop behavior unchanged.

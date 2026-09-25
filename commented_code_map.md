@@ -1,156 +1,156 @@
-# Commented code map — 0.0.5
+# Commented code map — 0.0.6
 
-The application uses five functional modules inside `pbs_maintenance/`, a small package initializer, and the original command-line entry point. Functions are moved and reused, not duplicated. This map lists every manually defined application/test function and class.
+This map explains every manually defined application/test function and class, plus every external command the project can invoke. The application keeps the original launcher and five functional modules inside `pbs_maintenance/`.
 
-## Dependency and layout decisions
+## Layout and dependency choices
 
-- `__init__.py` defines `__version__` and `SCRIPT_DIR`. SCRIPT_DIR resolves to the package's parent, keeping config/logs next to the launcher.
-- The launcher imports settings, logging configuration and maintenance, then handles argument parsing and startup checks.
-- `settings.py` owns DEFAULT_CONFIG, the tomllib/Tomli fallback, config adaptation, retention validation and notification selection. It only depends on the MQTT module for Paho availability; it does not import maintenance, avoiding a circular dependency.
-- `maintenance.py` imports settings, logging configuration and the two transports. It owns the ordered plan and shared executor, event metadata and dispatch. It does not implement either transport again.
-- `mail.py` and `mqtt.py` are independent protocol implementations. `logging_config.py` is independent of settings and maintenance.
-- The planner and manual-retention builder total about 30 lines; sync/verify/GC each need only a tiny command branch. Keeping all four operations together preserves one execution and safety path without four trivial modules.
-- `settings.py` is a conventional configuration-module name that remains trackable under the existing `config*.*` ignore rule. Package names avoid shadowing top-level standard-library modules such as email/logging.
-- Importing the package or a module does not read config, create logs, launch maintenance, or connect to notification services.
+- `pbs-datastore-sync-verify,prune-gc.py` is the only user-facing Python entry point. It parses `-c`/`--config`, help and version, then delegates to package code.
+- `pbs_maintenance/__init__.py` contains only `__version__` and `SCRIPT_DIR`, keeping config/log paths anchored beside the launcher.
+- `settings.py` owns TOML defaults, strict loading, path resolution, validation and notification-channel selection. It checks Paho availability through `mqtt.py` and local sendmail availability through `mail.py` without running maintenance.
+- `maintenance.py` owns the common sync → verify → prune → GC plan, one command executor, event construction and notification coordination.
+- `mail.py` implements only local sendmail/Postfix delivery. It does not implement direct SMTP.
+- `mqtt.py` implements MQTT publication. `logging_config.py` implements console/full/error logging.
+- Importing modules has no runtime side effects: no config load, log creation, child process, PBS work or network connection.
 
-## All application definitions by file
+## Application definitions
 
-### pbs-datastore-sync-verify,prune-gc.py
-
-| Definition | What it does and why |
-| --- | --- |
-| `main` | Expose only help/version/config selection. Help explicitly states that operational settings live in TOML, that relative `--config` paths use the caller working directory, that logs remain beside the resolved launcher, and that `--version` has no runtime side effects. After parsing, initialize script-local logs, load/validate config, enable console debug if requested, and require the PBS executable only for real work. Return 2 on startup errors; otherwise delegate to run_workflow and close handlers in finally. |
-
-### pbs_maintenance/__init__.py
-
-Defines package version and root-path constants only; no functions or commands.
-
-### pbs_maintenance/logging_config.py
+### `pbs-datastore-sync-verify,prune-gc.py`
 
 | Definition | What it does and why |
 | --- | --- |
-| `ConsoleFilter` | Command lines are already printed live; avoid a second console copy. |
-| `ConsoleFilter.filter` | Suppress records already printed by the pipe readers on the console; full/error file handlers still receive them. This prevents duplicate console lines. |
-| `PrivateFileHandler` | Create run logs readable/writable only by the running account. |
-| `PrivateFileHandler._open` | Create/open the run file with mode 0600 and UTF-8 replacement handling. Lazy opening of the error handler means successful runs do not leave empty error files. |
-| `is_error_line` | Recognize explicit error severity prefixes, optionally following an unbracketed ISO timestamp. Do not infer error severity from stderr or arbitrary mentions of errors; unlabelled details remain in the full log. |
-| `close_logger` | Close and remove all handlers, flushing logs and avoiding leaked descriptors or duplicate handlers during repeated runs/tests. |
-| `build_logger` | Create script-local logs/ with a unique UTC/PID/random filename stem. Attach an INFO/DEBUG console handler, full DEBUG file handler and lazy ERROR-only file handler. Expose log_file/err_file paths for event metadata. Abort setup on file errors. |
+| `main` | Create the parser, expose `-c` and `--config` as equivalent names for the same `Path` option, expose side-effect-free help/version, create script-local logging, load/validate TOML, enable console debug when configured, require `proxmox-backup-manager` only for real runs, call `maintenance.run_workflow`, and always close handlers. Startup/preflight failures return 2. |
 
-### pbs_maintenance/mail.py
+### `pbs_maintenance/__init__.py`
+
+No functions/classes. `__version__` is the package release marker. `SCRIPT_DIR` resolves to the project root so default config and logs remain beside the launcher.
+
+### `pbs_maintenance/logging_config.py`
 
 | Definition | What it does and why |
 | --- | --- |
-| `email_send` | Build a plain-text JSON EmailMessage with SUCCESS/FAILED/DRY RUN subject, use SMTP/STARTTLS or SMTP_SSL as configured, validate TLS with the system/custom CA, optionally log in and send to all recipients. Treat partial refusal as failure; use context-manager cleanup and no automatic retry. |
+| `ConsoleFilter` | Filter type used to avoid duplicate terminal copies of command-output lines that the pipe readers already print live. |
+| `ConsoleFilter.filter` | Reject records marked `command_output` from the console handler while still allowing file handlers to receive them. |
+| `PrivateFileHandler` | File-handler subclass used for private per-run logs. |
+| `PrivateFileHandler._open` | Open/create log files with mode `0600`; lazy error-file opening means a successful run does not leave an empty `.err`. |
+| `is_error_line` | Classify only explicit error prefixes such as `Error:`, `TASK ERROR`, `FATAL`, `CRITICAL`, `FAILED`, `[ERROR]`, `[FATAL]`, `[CRITICAL]`, optionally after an ISO-style timestamp. Ordinary stderr/progress is not automatically treated as an error. |
+| `close_logger` | Flush, close and remove handlers so repeated tests/runs do not leak descriptors or duplicate handlers. |
+| `build_logger` | Create `logs/` with private permissions, create unique full/error paths, attach console/full/error handlers, and expose `log_file`/`err_file` on the logger for event payloads. |
 
-### pbs_maintenance/maintenance.py
-
-| Definition | What it does and why |
-| --- | --- |
-| `CmdResult` | Dataclass containing argument list, return code, stdout and stderr; one result representation serves all maintenance steps. |
-| `tail_text` | Strip outer whitespace, returning up to the final configured number of characters. Shared failure reporting limits both MQTT and email output fields; config validation now requires a positive limit. |
-| `_reader_thread` | Drain one stdout/stderr pipe, capture lines, stream them live, classify explicitly labelled errors, and log with stream tags. Ordinary stderr is INFO so progress does not contaminate .err. Always attempts to close the stream. |
-| `run_cmd_stream` | Run an argument array without a shell, use two pipe-reader threads to avoid pipe-buffer deadlocks, wait for the child, join each reader for up to five seconds, log outcome, and return CmdResult. Nonzero exit always generates an error summary. Output decoding replaces invalid characters. The workflow handles launch OSError. |
-| `utc_now_iso` | Generate an aware UTC ISO timestamp for event consumers, including retained-message freshness checks. |
-| `_manual_prune_keep_dict` | Map the five retention fields into the original event format. Reused for both notification channels. |
-| `base_payload` | Build shared hostname/time/selection/target/prune metadata. Unselected targets are null and steps describes selection, not completed work. The workflow adds version, dry-run and log paths. |
-| `_build_manual_prune_argv` | Reuse the original command builder to append only supplied last/daily/weekly/monthly/yearly counts, in that order. No second builder exists for dry-run. |
-| `build_commands` | Build one ordered plan for sync → verify → prune → GC, reusing the manual-prune helper. The same argument arrays are displayed by dry-run or executed by real runs. |
-| `send_notifications` | Send the shared event over each selected channel independently and return whether all requested sends completed. Force MQTT retain=false on dry-run. Catch/report transport error types without including credentials or server replies; still attempt email after MQTT failure. Transport work is delegated to mqtt.mqtt_publish and mail.email_send. |
-| `run_workflow` | Construct shared metadata and the single command plan. Dry-run logs commands and optionally notifies, then returns without any process execution. Real runs execute in order, turn launch OSError into code 127, stop and report the first failed command, or publish success. Notifications failing produce exit 1 without repeating maintenance. |
-
-### pbs_maintenance/mqtt.py
+### `pbs_maintenance/mail.py`
 
 | Definition | What it does and why |
 | --- | --- |
-| `mqtt_publish` | Reuse the original MQTT 3.1.1/Paho publisher: optional authentication/TLS, QoS 1 JSON publishing, callback acknowledgment and timeout polling, then disconnect/loop cleanup. Constructor fallback supports older Paho APIs. Config now supplies its existing timeout parameter. |
-| `mqtt_publish.on_publish` | Set the acknowledgment flag and log the message ID, supporting the existing publish-wait fallback. |
-| `mqtt_publish.on_disconnect` | Log disconnect information while tolerating multiple callback signatures. Its original first-positional-argument interpretation is unchanged and may be imperfect for newer callback APIs. |
+| `find_sendmail` | Honor an explicit configured executable first. With no override, check `/usr/sbin/sendmail`, `/usr/bin/sendmail`, then `sendmail` in `PATH`. Return only an executable file/path or `None`. This matches the local sendmail/Postfix pattern used by the related Proxmox backup project. |
+| `email_send` | Build an `EmailMessage` containing the JSON outcome payload, add `SUCCESS`, `FAILED` or `DRY RUN` to the configured subject prefix, locate sendmail, and run `[sendmail_bin, "-t"]` with the full RFC message bytes on stdin, `check=True`, and captured output. No shell and no direct SMTP are used. A nonzero sendmail exit is raised as a notification failure; successful handoff is logged. |
 
-### pbs_maintenance/settings.py
+### `pbs_maintenance/maintenance.py`
 
 | Definition | What it does and why |
 | --- | --- |
-| `load_config` | Load a binary TOML file through tomllib or Tomli, reject unknown keys/tables and wrong types, merge documented defaults, and resolve CA paths against the config directory. Report parser failures without echoing secret source text. |
-| `config_to_args` | Adapt TOML values into the argparse.Namespace shape expected by original retention/payload helpers. Empty retention strings become None; the selected prune mode controls job/manual fields. This avoids rewriting established helpers. |
-| `_any_keep_set` | Check that at least one retention value is not None, retaining the original explicit-policy guard. Zero remains a supplied value; PBS determines its semantics. |
-| `notification_channels` | Select real-run mqtt.enabled/email.enabled, or independent dry_run.send_mqtt/send_email opt-ins during dry-run. A dry-run never inherits active live notifications implicitly. |
-| `validate_config` | Reject empty selection, missing enabled targets, invalid/ambiguous prune mode, missing manual retention, invalid ports/timeouts/tail limits, wrong recipient types and invalid active-channel requirements. Check active MQTT library availability through mqtt.py and supplied CA file existence before maintenance; do not connect to servers. |
+| `CmdResult` | Dataclass holding argv, return code, stdout and stderr for every PBS step. |
+| `tail_text` | Strip surrounding whitespace and retain at most the final configured number of characters for failure notification fields. |
+| `_reader_thread` | Drain one child stdout/stderr pipe, capture each line, print it live to the matching terminal stream, classify explicit errors for logging, and close the stream. |
+| `run_cmd_stream` | Launch an argument array without a shell, drain stdout/stderr concurrently to avoid pipe deadlocks, wait for completion, join reader threads, log success/failure and return `CmdResult`. |
+| `utc_now_iso` | Produce timezone-aware UTC ISO timestamps for outcome events. |
+| `_manual_prune_keep_dict` | Convert the five manual retention arguments into the event payload structure. |
+| `base_payload` | Build common host/time/step/job/prune/GC metadata. Disabled targets are represented as `None`; `steps` describes selected steps rather than completed steps. |
+| `_build_manual_prune_argv` | Build `proxmox-backup-manager prune run DATASTORE` and append only explicitly supplied retention switches. Zero remains an explicit supplied value. |
+| `build_commands` | Build one ordered plan for sync → verify → prune → GC. Dry-run and real execution use the same plan so preview cannot drift from actual command construction. |
+| `send_notifications` | Independently attempt selected MQTT and email channels. MQTT dry-run is never retained. Email delegates to `mail.email_send(email, sendmail, payload, logger)`. A failure in one channel does not suppress the other; the combined result controls the process exit code. |
+| `run_workflow` | Build the plan/payload, perform dry-run logging without PBS execution, or run enabled PBS commands in fixed order. Stop after the first command/launch failure, report that failure, otherwise report success. Notification failure returns 1 without rerunning maintenance. |
 
-## PBS commands and execution guards
+### `pbs_maintenance/mqtt.py`
 
-| Command | Purpose and selection |
+| Definition | What it does and why |
 | --- | --- |
-| `proxmox-backup-manager sync-job run ID` | First enabled step; ID is jobs.sync_job and the policy comes from PBS. |
-| `proxmox-backup-manager verify-job run ID` | Next enabled step; ID is jobs.verify_job. |
-| `proxmox-backup-manager prune-job run ID` | Configured prune branch; ID is prune.job when prune.mode is job. |
-| `proxmox-backup-manager prune run DATASTORE` | Manual prune branch; target is prune.datastore, not the GC target. |
-| `--keep-last N`, `--keep-daily N`, `--keep-weekly N`, `--keep-monthly N`, `--keep-yearly N` | Append only supplied manual retention values. PBS interprets them; they are not Python CLI flags. |
-| `proxmox-backup-manager garbage-collection start DATASTORE` | Final enabled step; target is jobs.gc_datastore. |
+| `mqtt_publish` | Publish JSON with Paho MQTT 3.1.1/QoS 1, optional auth/TLS/custom CA/insecure test mode, wait for publish acknowledgement, then stop/disconnect cleanly. |
+| `mqtt_publish.on_publish` | Mark the publish as acknowledged and log the message ID. |
+| `mqtt_publish.on_disconnect` | Log disconnect information while tolerating callback-signature variation. |
 
-Both preview and real work use build_commands. Only the real-work branch invokes run_cmd_stream; dry-run returns before reaching that loop. Nonzero exit stops later steps. Notification transports do not call maintenance. Config/active-dependency validation happens before either kind of work. Subprocesses receive argument lists with no shell; shlex.join is only for readable logs/event fields.
+### `pbs_maintenance/settings.py`
 
-## Every test definition — tests/test_maintenance.py
+| Definition | What it does and why |
+| --- | --- |
+| `load_config` | Load TOML through `tomllib`/Tomli, reject unknown sections/keys and wrong types, merge documented defaults, resolve `mqtt.cafile` and `sendmail.path` relative to the TOML directory, and avoid echoing malformed TOML source that could contain credentials. |
+| `config_to_args` | Adapt TOML values to the existing `argparse.Namespace` shape reused by prune/payload helpers, avoiding duplicate maintenance logic. |
+| `_any_keep_set` | Enforce that manual prune has at least one explicitly supplied retention value; `0` counts as supplied. |
+| `notification_channels` | For real runs use `mqtt.enabled`/`email.enabled`; for dry-run use the independent `dry_run.send_mqtt`/`dry_run.send_email` switches. |
+| `validate_config` | Fail closed on no selected steps, missing job/datastore targets, invalid/ambiguous prune settings, invalid MQTT ranges/topics/auth/CA/dependency, invalid email addresses/subject headers, or missing active sendmail executable. Silent dry-run does not require MQTT or sendmail. |
 
-Tests import the package under its real name and the original launcher as `pbs_cli`; patches target the modules that own the external effects. Temporary copies exercise real package imports and script-root path resolution.
+## External commands and guards
+
+| Command | Purpose / guard |
+| --- | --- |
+| `proxmox-backup-manager sync-job run ID` | First enabled maintenance step; `ID = jobs.sync_job`. |
+| `proxmox-backup-manager verify-job run ID` | Second enabled maintenance step; `ID = jobs.verify_job`. |
+| `proxmox-backup-manager prune-job run ID` | Job-based prune branch when `prune.mode = "job"`. |
+| `proxmox-backup-manager prune run DATASTORE` | Manual prune branch when `prune.mode = "manual"`. |
+| `--keep-last N`, `--keep-daily N`, `--keep-weekly N`, `--keep-monthly N`, `--keep-yearly N` | PBS arguments appended only for manually supplied retention values; these are not Python CLI options. |
+| `proxmox-backup-manager garbage-collection start DATASTORE` | Final enabled maintenance step; target is `jobs.gc_datastore`. |
+| `SENDMAIL_PATH -t` | Email delivery only. Message bytes are supplied on stdin; no shell or SMTP connection is created by the script. Active email preflight requires a usable executable first. |
+
+Both dry-run and real work use `build_commands`; only real work enters `run_cmd_stream`. Any nonzero PBS command stops later maintenance steps. The project still has no rollback, overlap lock, PBS subprocess timeout or separate PBS-task polling.
+
+## Test definitions — `tests/test_maintenance.py`
 
 | Definition | What it verifies / why |
 | --- | --- |
-| `write_toml` | Serialize these simple test fixtures without a production TOML writer dependency. |
-| `MaintenanceTests` | Groups offline regression and CLI integration checks, using isolated temporary directories. |
-| `MaintenanceTests.setUp` | Give every test a private script/config/log directory. |
-| `MaintenanceTests.run_app` | Run actual config loading/validation/logging with only external effects mocked. |
-| `MaintenanceTests.run_app.run` | Record command order and inject controlled nonzero or launch failures instead of executing PBS. |
-| `MaintenanceTests.run_app.mqtt_send` | Record MQTT events and optionally simulate broker failure without a connection. |
-| `MaintenanceTests.run_app.email_send` | Record email events and optionally simulate SMTP failure without sending mail. |
-| `MaintenanceTests.test_fixed_order_and_success` | Verify fixed order and success, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_each_failure_stops_later_commands` | Verify each failure stops later commands, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_validation_has_no_external_side_effects` | Verify validation has no external side effects, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_manual_retention_forwarding_and_payload` | Verify manual retention forwarding and payload, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_single_enabled_step_and_disabled_payload_fields` | Verify single enabled step and disabled payload fields, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_notification_failures_do_not_suppress_other_channel` | Verify notification failures do not suppress other channel, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_failure_tail_limit` | Verify failure tail limit, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_dry_run_is_silent_by_default_and_never_executes` | Verify dry run is silent by default and never executes, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_dry_run_channels_are_independent_explicit_opt_ins` | Verify dry run channels are independent explicit opt ins, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_dry_run_notification_errors_and_missing_settings` | Verify dry run notification errors and missing settings, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_real_notifications_can_both_be_disabled` | Verify real notifications can both be disabled, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_launch_failure_is_logged_and_notified` | Verify launch failure is logged and notified, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_help_and_version_require_no_configuration` | Verify help and version require no configuration, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_local_stream_capture_and_error_only_file` | Verify local stream capture and error only file, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_stderr_progress_alone_does_not_create_err` | Verify stderr progress alone does not create err, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_config_errors_are_logged_without_toml_source` | Verify config errors are logged without toml source, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_bundled_config_covers_defaults_and_is_safe` | Load the tracked config-example.toml and verify its complete schema/defaults and safe dry-run settings; this also works in Git checkouts without a local config.toml. |
-| `MaintenanceTests.test_config_relative_certificate_paths` | Verify config relative certificate paths, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_script_local_paths_ignore_caller_working_directory` | Verify script local paths ignore caller working directory, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_log_creation_failure_prevents_work` | Verify log creation failure prevents work, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_missing_paho_prevents_real_work_but_not_silent_dry_run` | Verify missing paho prevents real work but not silent dry run, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_missing_toml_parser_is_actionable` | Verify missing toml parser is actionable, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_smtp_modes_authentication_and_subject` | Verify smtp modes authentication and subject, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_smtp_partial_refusal_is_an_error` | Verify smtp partial refusal is an error, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_smtp_tls_failure_does_not_send_or_fallback` | Verify smtp tls failure does not send or fallback, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_active_email_header_validation` | Verify active email header validation, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.test_error_classifier_does_not_match_routine_mentions` | Verify error classifier does not match routine mentions, preserving the corresponding behavior without production side effects. |
-| `MaintenanceTests.prepare_cli_fixture` | Copy the runtime and substitute a harmless PBS executable for CLI tests. |
-| `MaintenanceTests.test_cli_dry_run_from_other_directory_and_symlink` | Check real package imports and root-relative config/log paths via both launch paths. |
-| `MaintenanceTests.test_cli_simulated_commands_cross_module_boundaries` | Run the real CLI against a fake executable to check success, stop order and file logs. |
-| `MaintenanceTests.test_package_imports_have_no_runtime_side_effects` | Import every module in a fresh process with process/network creation forbidden. |
+| `write_toml` | Serialize the simple test config dictionaries without adding a runtime TOML-writer dependency. |
+| `MaintenanceTests` | Container for isolated offline unit/integration tests. |
+| `MaintenanceTests.setUp` | Create a private temp project/config/log area and valid baseline config for each test. |
+| `MaintenanceTests.run_app` | Exercise real config loading/validation/logging/workflow while mocking only external PBS/MQTT/sendmail effects. |
+| `MaintenanceTests.run_app.run` | Record PBS argv and inject deterministic exit/launch failures. |
+| `MaintenanceTests.run_app.mqtt_send` | Record MQTT calls and optionally raise a broker-style failure. |
+| `MaintenanceTests.run_app.email_send` | Record email payloads and optionally raise a sendmail-style notification failure. |
+| `test_fixed_order_and_success` | Verify sync → verify → prune → GC order and success payload/log behavior. |
+| `test_each_failure_stops_later_commands` | Verify each possible step failure stops all later steps and reports the failed step/rc/tail. |
+| `test_validation_has_no_external_side_effects` | Verify malformed/unsafe config is rejected before PBS or notifications. |
+| `test_manual_retention_forwarding_and_payload` | Verify explicit retention guard, manual argv construction and payload representation. |
+| `test_single_enabled_step_and_disabled_payload_fields` | Verify a single selected step runs alone and inactive payload targets are null. |
+| `test_notification_failures_do_not_suppress_other_channel` | Verify MQTT and email attempts are independent and notification failure returns 1. |
+| `test_failure_tail_limit` | Verify configured failure tail truncation. |
+| `test_dry_run_is_silent_by_default_and_never_executes` | Verify safe default dry-run logs commands, launches no PBS process and sends nothing unless opted in. |
+| `test_dry_run_channels_are_independent_explicit_opt_ins` | Verify all MQTT/email dry-run opt-in combinations and non-retained MQTT rehearsal events. |
+| `test_dry_run_notification_errors_and_missing_settings` | Verify dry-run notification failures and invalid email recipients fail safely without PBS execution. |
+| `test_real_notifications_can_both_be_disabled` | Verify real maintenance can complete with both notification channels disabled. |
+| `test_launch_failure_is_logged_and_notified` | Verify PBS executable launch failure becomes rc 127, creates error log and reports failure. |
+| `test_help_and_version_require_no_configuration` | Verify help/version are side-effect free and expose current version/config semantics. |
+| `test_local_stream_capture_and_error_only_file` | Verify stdout/stderr capture, live streaming, explicit error classification and separate `.err`. |
+| `test_stderr_progress_alone_does_not_create_err` | Verify routine stderr progress is not automatically an error. |
+| `test_config_errors_are_logged_without_toml_source` | Verify TOML/preflight errors are logged without leaking malformed source contents. |
+| `test_bundled_config_covers_defaults_and_is_safe` | Verify the tracked example exactly represents every default and retains safe dry-run defaults. |
+| `test_config_relative_file_paths` | Verify relative `mqtt.cafile` and `sendmail.path` resolve from the config directory. |
+| `test_script_local_paths_ignore_caller_working_directory` | Verify default config/log roots stay beside the resolved launcher. |
+| `test_log_creation_failure_prevents_work` | Verify inability to create the log directory aborts before maintenance. |
+| `test_missing_paho_prevents_real_work_but_not_silent_dry_run` | Verify active MQTT requires Paho while silent dry-run does not. |
+| `test_missing_toml_parser_is_actionable` | Verify Python 3.9/3.10 missing Tomli gets an actionable startup error. |
+| `test_sendmail_message_and_command` | Verify email headers/body and the exact `[sendmail, "-t"]` subprocess contract with bytes on stdin and no real delivery. |
+| `test_sendmail_nonzero_exit_is_an_error` | Verify nonzero sendmail exit becomes an email notification failure. |
+| `test_find_sendmail_override_standard_paths_and_path` | Verify explicit executable override and PATH fallback behavior without using system mail. |
+| `test_active_email_requires_sendmail` | Verify an enabled email channel fails preflight before maintenance when sendmail cannot be found. |
+| `test_active_email_header_validation` | Verify unsafe/invalid From/To/Subject header values are rejected. |
+| `test_error_classifier_does_not_match_routine_mentions` | Verify only explicit severity prefixes are treated as error records. |
+| `prepare_cli_fixture` | Copy the real launcher/package and create a harmless fake PBS executable for cross-module CLI tests. |
+| `test_cli_dry_run_from_other_directory_and_symlink` | Verify real imports, symlink launch, script-root config/log paths and no PBS execution in dry-run. |
+| `test_cli_simulated_commands_cross_module_boundaries` | Verify real CLI/package execution with fake PBS and explicitly exercise both `-c` and `--config` as equivalent alternate-config selectors. |
+| `test_package_imports_have_no_runtime_side_effects` | Verify package imports cannot create child processes/network activity/logs. |
 
 ## User/setup commands and entry points
 
-- `python3 -m venv .venv`: create an isolated installation environment.
-- `.venv/bin/python -m pip install -r requirements.txt`: install MQTT support and conditional TOML parsing dependency.
-- `test -e config.toml || cp config-example.toml config.toml`: create a local config only if none exists.
-- `git rm --cached -- config.toml`: untrack an already tracked config without deleting the local file; does not erase history.
-- `chmod 600 config.toml`: restrict credential-bearing config access.
-- `.venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py'`: load script-local config and perform the selected workflow.
-- `--config PATH`: select another TOML file; a relative path uses cwd. Config remains the source of all operational settings.
-- `-h`/`--help` and `--version`: information-only parser exits before config/log setup.
-- `python3 -B -m unittest discover -s tests -v`: run offline tests without bytecode writes.
-- Application `__main__` guard: return main's result as the process exit code; importing does not run maintenance.
-- Test `__main__` guard: invoke unittest for direct execution.
+- `python3 -m venv .venv` — create an isolated Python environment.
+- `.venv/bin/python -m pip install -r requirements.txt` — install Paho and conditional Tomli; sendmail/Postfix is a system service/binary, not a Python dependency.
+- `test -e config.toml || cp config-example.toml config.toml` — create local config without overwriting an existing file.
+- `chmod 600 config.toml` — restrict access to config containing site details/MQTT credentials.
+- `.venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py'` — use default config beside launcher.
+- `-c PATH` / `--config PATH` — exact aliases selecting an alternate TOML; relative paths use the caller's current working directory.
+- `-h` / `--help` — parser help with no config/log/PBS/notification side effects.
+- `--version` — print version and exit with no runtime setup.
+- `sudo apt install postfix` — example Debian/PBS system installation for a local sendmail-compatible interface; the script does not configure Postfix.
+- `command -v sendmail` — inspect which sendmail-compatible executable the environment exposes.
+- `python3 -B -m unittest discover -s tests -v` — run offline tests without interpreter bytecode writes.
+- Launcher `if __name__ == "__main__"` — convert `main()` return value to process exit code.
+- Test `if __name__ == '__main__'` — run unittest directly.
 
-## Release documentation and scope
+## Release-document scope
 
-README.md describes current use, every TOML option, module responsibilities and keeping the package beside the launcher. config-example.toml contains the full commented defaults; config.toml is the local config, retained in the ZIP and ignored by Git. .gitignore permits the example and every Python module. VERSIONING.md records changes; VERIFICATION.md records test outcomes/limits; RELEASE_MANIFEST.json accounts for original/prior paths and current content hashes. No generated caches or logs are shipped.
-
-Runtime settings and safety behavior remain the same: no PBS command timeout, overlap lock, rollback or independent task polling; full command output stays in memory; reader joins use the existing five-second timeout. Error-only logs identify explicit labels and command failure summaries. Transports are optional and dry-run sends require separate opt-ins.
+`README.md` documents only current use. `config-example.toml` and `config.toml` expose every current option. `VERSIONING.md` records release history. `VERIFICATION.md` records actual checks/limitations. `RELEASE_MANIFEST.json` records prior-path preservation and final hashes. Generated logs, caches, bytecode, environments, build output and temporary files are excluded from the release ZIP.

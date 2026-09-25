@@ -1,10 +1,10 @@
 # Version-controlled example: copy to config.toml if you do not have a local config.
 # Keep credentials and site-specific values in your ignored config.toml.
-# PBS datastore maintenance — version 0.0.5
+# PBS datastore maintenance — version 0.0.6
 # This is the complete configuration. No operational CLI flags are needed.
 # Run: python3 'pbs-datastore-sync-verify,prune-gc.py'
 # Default location: config.toml beside the script, regardless of working directory.
-# Alternate file: --config /absolute/path/config.toml
+# Alternate file: -c /absolute/path/config.toml (same as --config)
 # TOML uses true/false, quoted strings, integers and arrays. There is no null.
 # Unknown tables/keys and wrong types fail before any maintenance or notifications.
 # Missing settings use the defaults shown here; never omit dry_run.enabled on a live setup.
@@ -80,8 +80,8 @@ enabled = true
 # Independent of mqtt.enabled. Requires valid [mqtt] settings and paho-mqtt.
 # Event is pbs_maintenance_dry_run with dry_run=true; retain is forced false.
 send_mqtt = false
-# Send a real SMTP message with DRY RUN in the subject. Default false.
-# Independent of email.enabled. Requires valid [email] server/from/to settings.
+# Send a real local-sendmail message with DRY RUN in the subject. Default false.
+# Independent of email.enabled. Requires valid [email] addresses and a usable sendmail binary.
 send_email = false
 
 [mqtt]
@@ -120,32 +120,20 @@ max_output_chars = 4000
 timeout_sec = 15
 
 [email]
-# Send SMTP success/failure notifications for REAL runs. Default false.
+# Send success/failure mail through the local sendmail/Postfix interface for REAL runs. Default false.
 # Dry-run uses dry_run.send_email independently; no mail is sent merely by setting this.
 enabled = false
-# SMTP hostname/IP, required when email sending is selected. Example: "smtp.example.lan".
-host = ""
-# SMTP TCP port, 1..65535. Default 587. Often 465 for "ssl" or 25 for a local relay.
-# No automatic port change when security changes.
-port = 587
-# "starttls" (default): require STARTTLS before login/send, with certificate checks.
-# "ssl": TLS from connection start, with certificate checks.
-# "none": plaintext SMTP, for a trusted local relay only. No fallback on TLS failure.
-security = "starttls"
-# SMTP username; "" (default) skips login. Required if password is set.
-username = ""
-# SMTP password; "" default. Keep this file private. Transport debug output is disabled.
-password = ""
-# Sender mailbox address, required for email. Example: "pbs@example.com".
+# Sender mailbox address, required when email sending is selected. Example: "pbs@example.com".
 from_address = ""
-# One or more destination mailboxes, required for email. Default [] = none.
+# One or more destination mailboxes, required when email is selected. Default [] = none.
 # Example: ["admin@example.com", "backup@example.com"]. Use bare mailbox addresses.
 to_addresses = []
 # Single-line subject prefix; SUCCESS, FAILED or DRY RUN and hostname are appended.
 subject_prefix = "[PBS maintenance]"
-# CA certificate file for SMTP TLS; "" uses system trust. Relative to this TOML file.
-# No setting disables SMTP certificate/hostname verification.
-cafile = ""
-# Positive socket-operation timeout in seconds, default 15. Not a total delivery deadline.
-# SMTP acceptance does not prove inbox delivery. Partial recipient refusal is an error.
-timeout_sec = 15
+
+[sendmail]
+# Optional explicit path to a sendmail-compatible executable. Default "" = auto-detect.
+# Auto-detection checks /usr/sbin/sendmail, /usr/bin/sendmail, then PATH.
+# A relative configured path is resolved from this TOML file's directory.
+# Typical Postfix installation provides /usr/sbin/sendmail.
+path = ""

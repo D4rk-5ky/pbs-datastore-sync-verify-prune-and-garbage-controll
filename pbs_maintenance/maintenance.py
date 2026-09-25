@@ -213,9 +213,9 @@ def send_notifications(config: Dict[str, Any], payload: Dict[str, Any], logger: 
             success = False
     if channels["email"]:
         try:
-            mail.email_send(config["email"], payload, logger)
+            mail.email_send(config["email"], config["sendmail"], payload, logger)
         except Exception as exc:
-            logger.error("Email notification failed (%s). Check SMTP, recipients, credentials and TLS settings.", type(exc).__name__)
+            logger.error("Email notification failed (%s). Check local sendmail/Postfix and recipient settings.", type(exc).__name__)
             success = False
     return success
 

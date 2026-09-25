@@ -1,6 +1,6 @@
 # PBS datastore maintenance
 
-Version **0.0.5**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and SMTP can report outcomes, including explicitly requested dry-run notifications.
+Version **0.0.6**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and local sendmail/Postfix can report outcomes, including explicitly requested dry-run notifications.
 
 ## ⚠️ Disclaimer / Liability
 
@@ -47,7 +47,7 @@ chmod 600 config.toml
 .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' --help
 ```
 
-The first command creates an isolated environment. The second installs Paho for MQTT and, on Python 3.9/3.10, Tomli for TOML parsing; Python 3.11+ uses built-in `tomllib`. The `test`/`cp` command creates `config.toml` from the example only when it is absent, preserving an existing configuration. `chmod` restricts the config because it can contain credentials. Help explains the few informational/selection flags and does not create logs or connect to anything.
+The first command creates an isolated environment. The second installs Paho for MQTT and, on Python 3.9/3.10, Tomli for TOML parsing; Python 3.11+ uses built-in `tomllib`. Email uses the host's local sendmail-compatible interface rather than direct SMTP. On Debian/PBS, Postfix commonly provides `/usr/sbin/sendmail`; install/configure a local mail transfer agent separately if you want email notifications. The `test`/`cp` command creates `config.toml` from the example only when it is absent, preserving an existing configuration. `chmod` restricts the config because it can contain MQTT credentials. Help explains the few informational/selection flags and does not create logs or connect to anything.
 
 1. Copy **[config-example.toml](config-example.toml)** to `config.toml` if needed, then edit your local `config.toml`. Fill in the IDs/targets for enabled steps. Every setting has comments, defaults and relevant examples.
 2. Leave `[dry_run] enabled = true`, `send_mqtt = false`, and `send_email = false`. The supplied file deliberately leaves your job IDs/targets empty: it will report a configuration error until you fill them in.
@@ -74,7 +74,7 @@ Ignore rules do not affect files already tracked by Git. If your repository alre
 | Invocation | What it does |
 | --- | --- |
 | `python3 'pbs-datastore-sync-verify,prune-gc.py'` | Load `config.toml` beside the script, create logs, validate, then preview or execute the selected plan. Use `.venv/bin/python` when installed in the environment above. |
-| `python3 'pbs-datastore-sync-verify,prune-gc.py' --config /path/to/site.toml` | Load an alternate TOML file. A relative `--config` path is relative to the caller's current directory. Logs still go beside the script. |
+| `python3 'pbs-datastore-sync-verify,prune-gc.py' -c /path/to/site.toml` or `--config /path/to/site.toml` | Load an alternate TOML file. `-c` and `--config` are exact equivalents. A relative config path is relative to the caller's current directory. Logs still go beside the script. |
 | `python3 'pbs-datastore-sync-verify,prune-gc.py' -h` or `--help` | Print all available CLI flags and path/side-effect notes, then exit without loading config, creating logs, running PBS commands, or connecting. |
 | `python3 'pbs-datastore-sync-verify,prune-gc.py' --version` | Print version and exit without loading config, creating logs, or connecting. |
 | `python3 -B -m unittest discover -s tests -v` | Run offline tests. `-B` avoids bytecode writes and `-v` lists tests. |
@@ -85,7 +85,7 @@ All operational options, including dry-run and verbose logging, live in TOML. Th
 
 TOML strings are quoted, booleans are `true`/`false`, integers are unquoted, and recipient lists use `["a@example.com", "b@example.com"]`. TOML has no null: the retention settings use `""` for unset. Use `7`, not `"7"`, for a retention count. Unknown tables/keys, wrong types and invalid numeric ranges are rejected before maintenance or notifications. Omitted settings take the defaults below; notably, omitting `dry_run.enabled` selects **dry-run**.
 
-Relative MQTT/SMTP CA paths are resolved against the **config file's directory**. Secrets are not passed to PBS commands or dumped to logs. Protect the config and logs as they can contain credentials or backup metadata. The app does not provide environment-variable substitution or secret-file references.
+Relative `mqtt.cafile` and configured `sendmail.path` values are resolved against the **config file's directory**. Secrets are not passed to PBS commands or dumped to logs. Protect the config and logs because they can contain MQTT credentials or backup metadata. The app does not provide environment-variable substitution or secret-file references.
 
 ### Steps, jobs and pruning
 
@@ -168,7 +168,7 @@ Normal stdout/stderr continues streaming live. Each line appears once on its cor
 | --- | --- | --- |
 | `dry_run.enabled` | `true` | Validate and log exact planned commands without starting **any PBS process**. `false` enables real work. |
 | `dry_run.send_mqtt` | `false` | Send a real MQTT dry-run event using `[mqtt]`; independent of `mqtt.enabled`. |
-| `dry_run.send_email` | `false` | Send a real SMTP dry-run message using `[email]`; independent of `email.enabled`. |
+| `dry_run.send_email` | `false` | Send a real local-sendmail dry-run message using `[email]` and `[sendmail]`; independent of `email.enabled`. |
 
 Dry-run requires valid local step/target configuration, but does not inspect PBS jobs/datastores, run a PBS validation command, or require the PBS executable. It writes logs. With both send settings false, it makes no broker/mail connections and does not require Paho. With a send setting true, the relevant library/settings are checked and a real notification is sent.
 
@@ -203,23 +203,28 @@ MQTT uses the distinct event `pbs_maintenance_dry_run` with `dry_run: true` and 
 
 MQTT uses protocol 3.1.1 and fixed QoS 1. A missing Paho library for an active MQTT channel is detected before maintenance. Broker connectivity/authentication is checked when publishing, so it can still fail after work has completed.
 
-### SMTP email
+### Email through local sendmail/Postfix
+
+Email delivery follows the same local-sendmail pattern as the related Proxmox backup tooling: the script builds a standard `EmailMessage`, finds a sendmail-compatible executable, and feeds the complete message to `sendmail -t` on stdin. It does **not** connect directly to an SMTP server and stores no SMTP username/password/TLS settings. Your local Postfix/sendmail configuration is responsible for relay, authentication, TLS, queueing, and final delivery.
 
 | Setting | Default | Meaning / example |
 | --- | --- | --- |
-| `email.enabled` | `false` | Send real-run success/failure messages; dry-run uses its own opt-in. |
-| `email.host` | `""` | Required SMTP hostname/IP when selected, e.g. `"smtp.example.lan"`. |
-| `email.port` | `587` | TCP port, 1–65535. Set the port your server requires; it never changes automatically. |
-| `email.security` | `"starttls"` | `"starttls"` requires upgrading before login/send; `"ssl"` uses TLS from connection start; `"none"` uses plaintext, suitable only for a trusted local relay. No fallback from failed TLS. |
-| `email.username` | `""` | Optional SMTP login username; empty skips login. |
-| `email.password` | `""` | SMTP login password; a nonempty password requires a username when sending. |
-| `email.from_address` | `""` | Required sender mailbox, e.g. `"pbs@example.com"`. Use a bare address. |
-| `email.to_addresses` | `[]` | Required nonempty array of bare recipient mailboxes, e.g. `["admin@example.com"]`. |
+| `email.enabled` | `false` | Send real-run success/failure messages; dry-run uses `dry_run.send_email` instead. |
+| `email.from_address` | `""` | Required sender mailbox when email is selected, e.g. `"pbs@example.com"`. |
+| `email.to_addresses` | `[]` | Required nonempty array of recipient mailboxes, e.g. `["admin@example.com"]`. |
 | `email.subject_prefix` | `"[PBS maintenance]"` | Single-line prefix. The app appends `SUCCESS`, `FAILED` or `DRY RUN`, plus hostname. |
-| `email.cafile` | `""` | CA file for SMTP TLS; empty uses system trust. Certificate/hostname checks are always enabled for TLS. A supplied path must exist when email sending is selected. |
-| `email.timeout_sec` | `15` | Positive per-socket-operation timeout; not a total delivery deadline. |
+| `sendmail.path` | `""` | Optional explicit sendmail executable. Empty auto-detects `/usr/sbin/sendmail`, `/usr/bin/sendmail`, then `sendmail` in `PATH`. Relative configured paths resolve from the TOML directory. |
 
-Email bodies contain the same JSON event data as MQTT; logs are referenced by path, not attached. MQTT and email are attempted independently: one transport failing does not suppress the other. The app does not retry sends automatically. SMTP acceptance does not prove final inbox delivery; refusal of any recipient is treated as an error.
+When email is selected, preflight requires a usable sendmail-compatible executable before maintenance starts. The send command is exactly `SENDMAIL_PATH -t`; the RFC message bytes are supplied on stdin with no shell. A nonzero sendmail exit makes the requested notification fail. The email body contains the same JSON outcome data as MQTT; logs are referenced by path, not attached. MQTT and email are attempted independently, so one notification transport failing does not suppress the other. No automatic retry is performed by this script; a local MTA may queue/retry according to its own configuration.
+
+Typical Debian/PBS setup uses Postfix. For example:
+
+```bash
+sudo apt install postfix
+command -v sendmail
+```
+
+Configure Postfix for your environment before relying on notifications. `command -v sendmail` should normally resolve to a sendmail-compatible binary after installation.
 
 ## Maintenance commands and safety
 
@@ -235,7 +240,7 @@ Enabled steps always run in this order. Each CLI process must exit successfully 
 
 Sync/verify/prune jobs use their existing PBS configuration. Manual pruning forwards only supplied retention counts. GC uses its independently selected datastore. Commands are passed as argument arrays, without a shell; shell-quoted text in logs is for inspection.
 
-Any nonzero command exit stops the sequence and skips later steps; a command-launch error does the same. Prune requires one selected mode and manual mode requires explicit retention. Invalid local config, missing active MQTT dependency, missing PBS executable for a real run, or failure to create logs aborts before maintenance. Local validation failures do not send notifications.
+Any nonzero command exit stops the sequence and skips later steps; a command-launch error does the same. Prune requires one selected mode and manual mode requires explicit retention. Invalid local config, missing active MQTT dependency, missing active sendmail executable, missing PBS executable for a real run, or failure to create logs aborts before maintenance. Local validation failures do not send notifications.
 
 Pruning and GC can remove data. The app does not create jobs, check cross-job datastore consistency, provide rollback, prevent concurrent runs, enforce a PBS subprocess timeout, or poll separate PBS task records. Success is based on the CLI exit codes. Confirm command support and completion semantics on the PBS release you use, and arrange overlap prevention externally when scheduling. Use absolute interpreter/script paths for scheduled runs.
 
@@ -265,17 +270,17 @@ The original `pbs-datastore-sync-verify,prune-gc.py` remains the command-line en
 | `pbs_maintenance/maintenance.py` | Sync, verify, prune and garbage collection; shared command execution, dry-run, outcome data, and notification coordination. |
 | `pbs_maintenance/logging_config.py` | Console output, private full/error log files, and error classification. |
 | `pbs_maintenance/mqtt.py` | MQTT connection, authentication, TLS and acknowledged publication. |
-| `pbs_maintenance/mail.py` | SMTP connection, authentication, TLS and email delivery. |
+| `pbs_maintenance/mail.py` | Build outcome email, locate local sendmail/Postfix, and deliver with `sendmail -t`. |
 
 A small `pbs_maintenance/__init__.py` holds the version and project-directory location. Default config and logs remain in the project root beside the launcher, not inside the package.
 
-The four PBS operations share one module because their command planner plus the manual-prune helper total about 30 lines. Splitting them into four files would mostly separate tiny command builders that depend on the same executor and stop-on-failure workflow. Email and MQTT have distinct protocols and dependencies, so each has its own module. No separate utility, model, per-step, or notification-dispatch modules are needed.
+The four PBS operations share one module because their command planner plus the manual-prune helper total about 30 lines. Splitting them into four files would mostly separate tiny command builders that depend on the same executor and stop-on-failure workflow. Email/sendmail and MQTT have distinct protocols and dependencies, so each has its own module. No separate utility, model, per-step, or notification-dispatch modules are needed.
 
 ## Project and verification files
 
 `config-example.toml` is the complete commented example; `config.toml` holds the local configuration. `.gitignore` excludes local config files while allowing the example. `requirements.txt` defines installation dependencies. `commented_code_map.md` explains functions/commands; `VERSIONING.md` records releases; `VERIFICATION.md` records tests and their limits. `RELEASE_MANIFEST.json` records original/prior-file preservation and release hashes. The ZIP excludes generated logs, bytecode, environments and temporary files.
 
-Implementation references: [Python TOML parsing](https://docs.python.org/3/library/tomllib.html), [Python SMTP](https://docs.python.org/3/library/smtplib.html), and [Python file logging](https://docs.python.org/3/library/logging.handlers.html).
+Implementation references: [Python TOML parsing](https://docs.python.org/3/library/tomllib.html), [Python `EmailMessage`](https://docs.python.org/3/library/email.message.html), [Python subprocesses](https://docs.python.org/3/library/subprocess.html), and [Python file logging](https://docs.python.org/3/library/logging.handlers.html).
 
 ## License
 

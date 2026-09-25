@@ -1,0 +1,404 @@
+alias: >-
+  PBS maintenance - MQTT JSON - Host A PBS Datastore
+  sync, verify, prune and GC
+description: >-
+  React to PBS maintenance 0.0.6 MQTT JSON. Understands individual or combined
+  sync, verify, prune and GC runs. Handles dry-run separately. Only a real
+  successful run continues with the shutdown sequence.
+
+triggers:
+  - trigger: mqtt
+    options:
+      topic: homeassistant/mqtt-listener/host-a-pbs-datastore
+
+conditions: []
+
+actions:
+  - variables:
+      p: "{{ trigger.payload_json | default({}) }}"
+      event: "{{ trigger.payload_json.event | default('') }}"
+      steps: "{{ trigger.payload_json.steps | default({}) }}"
+      host: "{{ trigger.payload_json.hostname | default('unknown') }}"
+      version: "{{ trigger.payload_json.version | default('unknown') }}"
+      dry_run: "{{ trigger.payload_json.dry_run | default(false) | bool }}"
+      log_file: "{{ trigger.payload_json.log_file | default('') }}"
+      err_file: "{{ trigger.payload_json.err_file | default('') }}"
+
+  - variables:
+      do_sync: "{{ steps.sync | default(false) | bool }}"
+      do_verify: "{{ steps.verify | default(false) | bool }}"
+      do_prune: "{{ steps.prune | default(false) | bool }}"
+      do_gc: "{{ steps.gc | default(false) | bool }}"
+
+      failed_step: "{{ p.failed_step | default('') }}"
+      rc: "{{ p.returncode | default('') }}"
+
+      prune_mode: "{{ p.prune_mode | default('') }}"
+      prune_job: "{{ p.prune_job | default('') }}"
+      prune_datastore: "{{ p.prune_datastore | default('') }}"
+      prune_keep: "{{ p.prune_keep | default({}) }}"
+
+      commands: "{{ p.commands | default([]) }}"
+
+  - variables:
+      step_key: >-
+        {% set ns = namespace(items=[]) %}
+
+        {% if do_sync | bool %}
+          {% set ns.items = ns.items + ['sync'] %}
+        {% endif %}
+
+        {% if do_verify | bool %}
+          {% set ns.items = ns.items + ['verify'] %}
+        {% endif %}
+
+        {% if do_prune | bool %}
+          {% set ns.items = ns.items + ['prune'] %}
+        {% endif %}
+
+        {% if do_gc | bool %}
+          {% set ns.items = ns.items + ['gc'] %}
+        {% endif %}
+
+        {{ ns.items | join('+') if ns.items else 'none' }}
+
+      enabled_steps: >-
+        {% set ns = namespace(items=[]) %}
+
+        {% if do_sync | bool %}
+          {% set ns.items = ns.items + ['sync'] %}
+        {% endif %}
+
+        {% if do_verify | bool %}
+          {% set ns.items = ns.items + ['verify'] %}
+        {% endif %}
+
+        {% if do_prune | bool %}
+          {% set ns.items = ns.items + ['prune'] %}
+        {% endif %}
+
+        {% if do_gc | bool %}
+          {% set ns.items = ns.items + ['gc'] %}
+        {% endif %}
+
+        {{ ns.items | join(', ') if ns.items else 'none' }}
+
+      step_count: >-
+        {{
+          (do_sync | bool | int)
+          + (do_verify | bool | int)
+          + (do_prune | bool | int)
+          + (do_gc | bool | int)
+        }}
+
+      run_type: >-
+        {% set count =
+          (do_sync | bool | int)
+          + (do_verify | bool | int)
+          + (do_prune | bool | int)
+          + (do_gc | bool | int)
+        %}
+
+        {% if count == 4 %}
+          full
+        {% elif count == 1 %}
+          individual
+        {% elif count > 1 %}
+          combined
+        {% else %}
+          none
+        {% endif %}
+
+      prune_summary: >-
+        {% if not (do_prune | bool) %}
+          prune=disabled
+        {% elif prune_mode == 'prune-job' %}
+          prune=prune-job (id={{ prune_job }})
+        {% elif prune_mode == 'manual' %}
+          prune=manual
+          (datastore={{ prune_datastore }},
+          keep={{ prune_keep | tojson }})
+        {% else %}
+          prune=enabled (mode=unknown)
+        {% endif %}
+
+  - choose:
+
+      - alias: PBS maintenance - Dry run
+        conditions:
+          - condition: template
+            value_template: >-
+              {{
+                event == 'pbs_maintenance_dry_run'
+                or (dry_run | bool)
+              }}
+
+        sequence:
+          - action: notify.persistent_notification
+            data:
+              title: "PBS maintenance DRY RUN ({{ host }})"
+              message: |-
+                PBS maintenance DRY RUN
+
+                No PBS maintenance commands were executed.
+
+                Host: {{ host }}
+                Script version: {{ version }}
+
+                Run type: {{ run_type }}
+                Selected steps: {{ enabled_steps }}
+                Step key: {{ step_key }}
+
+                sync={{ do_sync }}
+                verify={{ do_verify }}
+                prune={{ do_prune }}
+                gc={{ do_gc }}
+
+                {{ prune_summary }}
+
+                Planned commands:
+                {% for cmd in commands %}
+                {% if cmd is string %}
+                - {{ cmd }}
+                {% else %}
+                - {{ cmd | join(' ') }}
+                {% endif %}
+                {% else %}
+                - none
+                {% endfor %}
+
+                Log:
+                {{ log_file }}
+
+          - action: notify.pushover
+            data:
+              title: "Host A - PBS DRY RUN"
+              message: >-
+                PBS dry-run on {{ host }}.
+                Selected steps: {{ enabled_steps }}.
+                Run type={{ run_type }}.
+                No PBS maintenance commands were executed.
+
+      - alias: PBS maintenance - Failed
+        conditions:
+          - condition: template
+            value_template: >-
+              {{
+                event == 'pbs_maintenance_failed'
+                and not (dry_run | bool)
+              }}
+
+        sequence:
+          - action: notify.persistent_notification
+            data:
+              title: "PBS maintenance FAILED ({{ host }})"
+              message: |-
+                PBS maintenance FAILED
+
+                Host: {{ host }}
+                Script version: {{ version }}
+
+                Run type: {{ run_type }}
+                Selected steps: {{ enabled_steps }}
+                Step key: {{ step_key }}
+
+                Failed step: {{ failed_step }}
+                Return code: {{ rc }}
+
+                sync={{ do_sync }}
+                verify={{ do_verify }}
+                prune={{ do_prune }}
+                gc={{ do_gc }}
+
+                {{ prune_summary }}
+
+                Command:
+                {{ p.command | default('') }}
+
+                stderr tail:
+                {{ p.stderr_tail | default('') }}
+
+                stdout tail:
+                {{ p.stdout_tail | default('') }}
+
+                Log:
+                {{ log_file }}
+
+                Error log:
+                {{ err_file }}
+
+          - action: notify.pushover
+            data:
+              title: "Host A - PBS FAILED"
+              message: >-
+                PBS maintenance FAILED on {{ host }}.
+                Failed step={{ failed_step }},
+                rc={{ rc }}.
+                Requested={{ enabled_steps }}.
+                {{ prune_summary }}.
+
+          - choose:
+              - alias: Sync failed
+                conditions:
+                  - condition: template
+                    value_template: "{{ failed_step == 'sync' }}"
+                sequence: []
+
+              - alias: Verify failed
+                conditions:
+                  - condition: template
+                    value_template: "{{ failed_step == 'verify' }}"
+                sequence: []
+
+              - alias: Prune failed
+                conditions:
+                  - condition: template
+                    value_template: "{{ failed_step == 'prune' }}"
+                sequence: []
+
+              - alias: Garbage collection failed
+                conditions:
+                  - condition: template
+                    value_template: "{{ failed_step == 'gc' }}"
+                sequence: []
+
+            default: []
+
+      - alias: PBS maintenance - Success
+        conditions:
+          - condition: template
+            value_template: >-
+              {{
+                event == 'pbs_maintenance_success'
+                and not (dry_run | bool)
+              }}
+
+        sequence:
+          - action: logbook.log
+            data:
+              name: PBS maintenance OK
+              message: >-
+                {{ host }} OK.
+                Version={{ version }}.
+                Run type={{ run_type }}.
+                Selected steps={{ enabled_steps }}.
+                Step key={{ step_key }}.
+                {{ prune_summary }}.
+
+          - action: notify.pushover
+            data:
+              title: "Host A - PBS Datastore"
+              message: >-
+                PBS datastore maintenance completed successfully on {{ host }}.
+                Completed: {{ enabled_steps }}.
+                Run type={{ run_type }}.
+                {{ prune_summary }}.
+
+          - choose:
+              - alias: Full PBS maintenance
+                conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ step_key == 'sync+verify+prune+gc' }}
+                sequence:
+                  - action: logbook.log
+                    data:
+                      name: PBS full maintenance complete
+                      message: >-
+                        {{ host }} completed sync, verify, prune and GC.
+
+              - alias: Sync verify and GC without prune
+                conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ step_key == 'sync+verify+gc' }}
+                sequence:
+                  - action: logbook.log
+                    data:
+                      name: PBS maintenance complete
+                      message: >-
+                        {{ host }} completed sync, verify and GC.
+                        Prune was disabled.
+
+              - alias: Sync only
+                conditions:
+                  - condition: template
+                    value_template: "{{ step_key == 'sync' }}"
+                sequence:
+                  - action: logbook.log
+                    data:
+                      name: PBS sync complete
+                      message: "{{ host }} completed PBS sync."
+
+              - alias: Verify only
+                conditions:
+                  - condition: template
+                    value_template: "{{ step_key == 'verify' }}"
+                sequence:
+                  - action: logbook.log
+                    data:
+                      name: PBS verify complete
+                      message: "{{ host }} completed PBS verify."
+
+              - alias: Prune only
+                conditions:
+                  - condition: template
+                    value_template: "{{ step_key == 'prune' }}"
+                sequence:
+                  - action: logbook.log
+                    data:
+                      name: PBS prune complete
+                      message: "{{ host }} completed PBS prune."
+
+              - alias: GC only
+                conditions:
+                  - condition: template
+                    value_template: "{{ step_key == 'gc' }}"
+                sequence:
+                  - action: logbook.log
+                    data:
+                      name: PBS GC complete
+                      message: "{{ host }} completed PBS garbage collection."
+
+            default:
+              - action: logbook.log
+                data:
+                  name: PBS combined maintenance complete
+                  message: >-
+                    {{ host }} completed PBS steps:
+                    {{ enabled_steps }}.
+
+          # Shut down another Proxmox host after successful maintenance.
+          - action: mqtt.publish
+            data:
+              evaluate_payload: false
+              qos: 0
+              retain: false
+              topic: homeassistant/mqtt-listener/host-b-proxmox
+              payload: shutdown_delay
+
+          - delay:
+              seconds: 5
+
+          # Shut down the host running this PBS maintenance task.
+          - action: mqtt.publish
+            data:
+              evaluate_payload: false
+              qos: 0
+              retain: false
+              topic: homeassistant/mqtt-listener/host-a-proxmox
+              payload: shutdown
+
+    default:
+      - action: system_log.write
+        data:
+          level: warning
+          message: >-
+            PBS MQTT message had unknown/inconsistent event.
+            event={{ event }},
+            dry_run={{ dry_run }},
+            selected_steps={{ enabled_steps }},
+            step_key={{ step_key }},
+            payload={{ p }}
+
+mode: single

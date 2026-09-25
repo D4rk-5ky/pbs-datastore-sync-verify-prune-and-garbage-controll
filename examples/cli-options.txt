@@ -1,4 +1,4 @@
-PBS maintenance 0.0.5 — command reference
+PBS maintenance 0.0.6 — command reference
 
 All operational options are configured in ../config.toml. Each has an explanatory
 comment there; README.md documents behavior, defaults, examples and dependencies.
@@ -8,13 +8,16 @@ Run from the project directory (after installing requirements.txt and editing co
   .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py'
     Read config.toml beside the script; validate; preview or execute; write logs/.
 
+  .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' -c /path/site.toml
   .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' --config /path/site.toml
-    Use another TOML file. Relative paths are relative to the working directory.
-    Logs always go beside the script. Relative CA paths use the config directory.
+    -c and --config are exact equivalents. Use another TOML file. Relative paths
+    are relative to the working directory. Logs always go beside the script.
+    Relative mqtt.cafile and sendmail.path values use the config directory.
 
   .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' -h
   .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' --help
-    Show every CLI flag plus config/log path behavior; no config loading, logs, maintenance or notifications.
+    Show every CLI flag plus config/log path behavior; no config loading, logs,
+    maintenance or notifications.
 
   .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py' --version
     Show version; no config loading, logs, maintenance or notifications.
@@ -24,10 +27,11 @@ Optional real dry-run sends: set send_mqtt=true and/or send_email=true in that t
 For real maintenance set [dry_run] enabled=false.
 Real-run transport switches are [mqtt] enabled and [email] enabled.
 Default dry-run sends nothing. Config targets are required even in dry-run.
+Email delivery uses local sendmail/Postfix; [sendmail] path can override auto-detection.
 
 Offline tests:
   python3 -B -m unittest discover -s tests -v
-    No real PBS, MQTT or SMTP connections; temporary log/config files are cleaned up.
+    No real PBS, MQTT or sendmail delivery; temporary log/config files are cleaned up.
 
 Create local config when missing:
   test -e config.toml || cp config-example.toml config.toml

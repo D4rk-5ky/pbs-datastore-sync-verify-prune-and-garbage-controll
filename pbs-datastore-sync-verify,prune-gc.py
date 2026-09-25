@@ -17,7 +17,7 @@ def main() -> int:
         description="PBS maintenance configured by TOML; operational settings are not CLI flags.",
         epilog=(
             "Default config: config.toml beside the resolved launcher. "
-            "Use --config only to select another TOML file; relative paths resolve from the current working directory."
+            "Use -c/--config only to select another TOML file; relative paths resolve from the current working directory."
         ),
     )
     parser.add_argument(
@@ -27,6 +27,7 @@ def main() -> int:
         help="Print the application version and exit; do not load config, create logs, run PBS commands, or notify.",
     )
     parser.add_argument(
+        "-c",
         "--config",
         type=Path,
         default=SCRIPT_DIR / "config.toml",
