@@ -4,6 +4,14 @@
 
 Use the single canonical filename `VERSIONING.md`. Do not create a case-only `versioning.md` duplicate: it conflicts on case-insensitive filesystems.
 
+## 0.0.5 — 2026-09-25
+
+- Audit the complete 0.0.4 archive before modification and keep the existing maintenance, validation, logging, notification, prune-safety, command ordering, and failure-stop behavior unchanged.
+- Clarify the launcher help text so every available CLI flag is explicit about side effects and path behavior: `--version` is information-only, `--config PATH` selects only the TOML file, relative paths use the caller working directory, logs remain beside the resolved launcher, and operational settings stay in TOML. No operational CLI flags are added.
+- Increment `VERSION` and package `__version__` from 0.0.4 to 0.0.5. Update the current README, both complete TOML examples, CLI command reference, code map, test version expectation, verification record, and release manifest together. Preserve the user-provided disclaimer text.
+- Retain every 0.0.4 project path. Add no runtime dependencies, no new operational settings, and no new production modules. Package without logs, bytecode, caches, environments, build output, or temporary files.
+- Re-run compilation, all offline regression/integration tests, help/version checks, config/default parity checks, definition/code-map coverage checks, archive integrity checks, and final extracted-ZIP tests. Live PBS, MQTT, and SMTP services remain outside the test scope.
+
 ## 0.0.4 — 2026-09-25
 
 - Refactor the single script into the `pbs_maintenance` package with five functional modules: `settings.py`, `maintenance.py`, `logging_config.py`, `mqtt.py`, and `mail.py`. Add only a small package `__init__.py` for version/root-location constants; retain the original filename and CLI in the launcher.

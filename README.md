@@ -1,6 +1,6 @@
 # PBS datastore maintenance
 
-Version **0.0.4**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and SMTP can report outcomes, including explicitly requested dry-run notifications.
+Version **0.0.5**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and SMTP can report outcomes, including explicitly requested dry-run notifications.
 
 ## ⚠️ Disclaimer / Liability
 
@@ -75,7 +75,7 @@ Ignore rules do not affect files already tracked by Git. If your repository alre
 | --- | --- |
 | `python3 'pbs-datastore-sync-verify,prune-gc.py'` | Load `config.toml` beside the script, create logs, validate, then preview or execute the selected plan. Use `.venv/bin/python` when installed in the environment above. |
 | `python3 'pbs-datastore-sync-verify,prune-gc.py' --config /path/to/site.toml` | Load an alternate TOML file. A relative `--config` path is relative to the caller's current directory. Logs still go beside the script. |
-| `python3 'pbs-datastore-sync-verify,prune-gc.py' -h` or `--help` | Print help and exit without loading config, creating logs, or connecting. |
+| `python3 'pbs-datastore-sync-verify,prune-gc.py' -h` or `--help` | Print all available CLI flags and path/side-effect notes, then exit without loading config, creating logs, running PBS commands, or connecting. |
 | `python3 'pbs-datastore-sync-verify,prune-gc.py' --version` | Print version and exit without loading config, creating logs, or connecting. |
 | `python3 -B -m unittest discover -s tests -v` | Run offline tests. `-B` avoids bytecode writes and `-v` lists tests. |
 

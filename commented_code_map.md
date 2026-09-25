@@ -1,4 +1,4 @@
-# Commented code map — 0.0.4
+# Commented code map — 0.0.5
 
 The application uses five functional modules inside `pbs_maintenance/`, a small package initializer, and the original command-line entry point. Functions are moved and reused, not duplicated. This map lists every manually defined application/test function and class.
 
@@ -19,7 +19,7 @@ The application uses five functional modules inside `pbs_maintenance/`, a small 
 
 | Definition | What it does and why |
 | --- | --- |
-| `main` | Expose only help/version/config selection, initialize script-local logs, load/validate config, enable console debug if requested, and require the PBS executable only for real work. Return 2 on startup errors; otherwise delegate to run_workflow and close handlers in finally. |
+| `main` | Expose only help/version/config selection. Help explicitly states that operational settings live in TOML, that relative `--config` paths use the caller working directory, that logs remain beside the resolved launcher, and that `--version` has no runtime side effects. After parsing, initialize script-local logs, load/validate config, enable console debug if requested, and require the PBS executable only for real work. Return 2 on startup errors; otherwise delegate to run_workflow and close handlers in finally. |
 
 ### pbs_maintenance/__init__.py
 

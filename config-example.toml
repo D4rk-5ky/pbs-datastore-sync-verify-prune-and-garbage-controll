@@ -1,6 +1,6 @@
 # Version-controlled example: copy to config.toml if you do not have a local config.
 # Keep credentials and site-specific values in your ignored config.toml.
-# PBS datastore maintenance — version 0.0.4
+# PBS datastore maintenance — version 0.0.5
 # This is the complete configuration. No operational CLI flags are needed.
 # Run: python3 'pbs-datastore-sync-verify,prune-gc.py'
 # Default location: config.toml beside the script, regardless of working directory.

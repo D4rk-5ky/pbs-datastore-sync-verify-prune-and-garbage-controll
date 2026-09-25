@@ -226,14 +226,22 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(Path(events[0]['payload']['err_file']).exists())
 
     def test_help_and_version_require_no_configuration(self):
-        for flag, expected in [('--help', '--config'), ('--version', '0.0.4')]:
+        cases = [
+            ('--help', ('--config', 'operational settings are not CLI flags',
+                        'relative paths resolve from the current working directory',
+                        'Logs still go beside the launcher')),
+            ('--version', ('0.0.5',)),
+        ]
+        for flag, expected_texts in cases:
             with self.subTest(flag=flag), patch.object(sys, 'argv', [str(SCRIPT), flag]), \
                  patch.object(logging_config, 'build_logger') as log, patch.object(settings, 'load_config') as load, \
                  contextlib.redirect_stdout(io.StringIO()) as output:
                 with self.assertRaises(SystemExit) as result:
                     app.main()
                 self.assertEqual(result.exception.code, 0)
-                self.assertIn(expected, output.getvalue())
+                normalized_output = " ".join(output.getvalue().split())
+                for expected in expected_texts:
+                    self.assertIn(expected, normalized_output)
                 log.assert_not_called(); load.assert_not_called()
 
     def test_local_stream_capture_and_error_only_file(self):

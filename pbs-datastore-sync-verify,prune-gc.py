@@ -13,11 +13,29 @@ from pbs_maintenance import SCRIPT_DIR, __version__, logging_config, maintenance
 
 def main() -> int:
     """Load script-local configuration and logs; operational settings live in TOML."""
-    parser = argparse.ArgumentParser(description="PBS maintenance configured by config.toml beside the script.")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}",
-                        help="Show version and exit without configuration, logs or connections.")
-    parser.add_argument("--config", type=Path, default=SCRIPT_DIR / "config.toml", metavar="PATH",
-                        help="Alternate TOML file (relative to current directory). Default: config.toml beside the script.")
+    parser = argparse.ArgumentParser(
+        description="PBS maintenance configured by TOML; operational settings are not CLI flags.",
+        epilog=(
+            "Default config: config.toml beside the resolved launcher. "
+            "Use --config only to select another TOML file; relative paths resolve from the current working directory."
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Print the application version and exit; do not load config, create logs, run PBS commands, or notify.",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=SCRIPT_DIR / "config.toml",
+        metavar="PATH",
+        help=(
+            "Select an alternate TOML configuration file. Relative paths resolve from the current working directory; "
+            "the default is config.toml beside the resolved launcher. Logs still go beside the launcher."
+        ),
+    )
     cli = parser.parse_args()
     try:
         logger = logging_config.build_logger(False)
