@@ -1,4 +1,4 @@
-# Commented code map — 0.0.6
+# Commented code map — 0.0.7
 
 This map explains every manually defined application/test function and class, plus every external command the project can invoke. The application keeps the original launcher and five functional modules inside `pbs_maintenance/`.
 
@@ -56,7 +56,7 @@ No functions/classes. `__version__` is the package release marker. `SCRIPT_DIR` 
 | `base_payload` | Build common host/time/step/job/prune/GC metadata. Disabled targets are represented as `None`; `steps` describes selected steps rather than completed steps. |
 | `_build_manual_prune_argv` | Build `proxmox-backup-manager prune run DATASTORE` and append only explicitly supplied retention switches. Zero remains an explicit supplied value. |
 | `build_commands` | Build one ordered plan for sync → verify → prune → GC. Dry-run and real execution use the same plan so preview cannot drift from actual command construction. |
-| `send_notifications` | Independently attempt selected MQTT and email channels. MQTT dry-run is never retained. Email delegates to `mail.email_send(email, sendmail, payload, logger)`. A failure in one channel does not suppress the other; the combined result controls the process exit code. |
+| `send_notifications` | Resolve event-specific channels, then independently attempt MQTT and email. Dry-run uses its explicit opt-ins; real failures use the channel master `enabled` switches; real success additionally requires each channel's `on_success = true`. MQTT dry-run is never retained. Email delegates to `mail.email_send(email, sendmail, payload, logger)`. A failure in one channel does not suppress the other; the combined result controls the process exit code. |
 | `run_workflow` | Build the plan/payload, perform dry-run logging without PBS execution, or run enabled PBS commands in fixed order. Stop after the first command/launch failure, report that failure, otherwise report success. Notification failure returns 1 without rerunning maintenance. |
 
 ### `pbs_maintenance/mqtt.py`
@@ -74,7 +74,7 @@ No functions/classes. `__version__` is the package release marker. `SCRIPT_DIR` 
 | `load_config` | Load TOML through `tomllib`/Tomli, reject unknown sections/keys and wrong types, merge documented defaults, resolve `mqtt.cafile` and `sendmail.path` relative to the TOML directory, and avoid echoing malformed TOML source that could contain credentials. |
 | `config_to_args` | Adapt TOML values to the existing `argparse.Namespace` shape reused by prune/payload helpers, avoiding duplicate maintenance logic. |
 | `_any_keep_set` | Enforce that manual prune has at least one explicitly supplied retention value; `0` counts as supplied. |
-| `notification_channels` | For real runs use `mqtt.enabled`/`email.enabled`; for dry-run use the independent `dry_run.send_mqtt`/`dry_run.send_email` switches. |
+| `notification_channels` | Select transport activity by run/event. Dry-run uses independent `dry_run.send_mqtt`/`dry_run.send_email`; validation and real failures use `mqtt.enabled`/`email.enabled`; real success requires both the master `enabled` switch and the corresponding `on_success` switch. This keeps failures active when success notifications are disabled. |
 | `validate_config` | Fail closed on no selected steps, missing job/datastore targets, invalid/ambiguous prune settings, invalid MQTT ranges/topics/auth/CA/dependency, invalid email addresses/subject headers, or missing active sendmail executable. Silent dry-run does not require MQTT or sendmail. |
 
 ## External commands and guards

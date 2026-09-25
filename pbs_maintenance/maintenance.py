@@ -194,7 +194,7 @@ def build_commands(args: argparse.Namespace, steps: Dict[str, bool]) -> List[tup
 
 def send_notifications(config: Dict[str, Any], payload: Dict[str, Any], logger: logging.Logger) -> bool:
     """Attempt each selected channel independently; one failure must not suppress the other."""
-    channels = settings.notification_channels(config)
+    channels = settings.notification_channels(config, payload.get("event"))
     success = True
     if channels["mqtt"]:
         mqtt_settings = config["mqtt"]
@@ -231,7 +231,7 @@ def run_workflow(config: Dict[str, Any], args: argparse.Namespace, logger: loggi
         for step, argv in commands:
             logger.info("DRY RUN [%s]: %s", step, shlex.join(argv))
         payload.update(event="pbs_maintenance_dry_run", commands=[argv for _, argv in commands])
-        logger.info("Dry run: no PBS commands executed. Notification opt-ins: %s", settings.notification_channels(config))
+        logger.info("Dry run: no PBS commands executed. Notification opt-ins: %s", settings.notification_channels(config, payload["event"]))
         return 0 if send_notifications(config, payload, logger) else 1
     for step, argv in commands:
         try:
@@ -252,6 +252,6 @@ def run_workflow(config: Dict[str, Any], args: argparse.Namespace, logger: loggi
                    err_file=str(logger.err_file) if logger.err_file.exists() else None)
     if not send_notifications(config, payload, logger):
         return 1
-    logger.info("All selected steps succeeded; selected notifications completed.")
+    logger.info("All selected steps succeeded; configured success notifications completed or were skipped.")
     return 0
 

@@ -1,4 +1,4 @@
-PBS maintenance 0.0.6 — command reference
+PBS maintenance 0.0.7 — command reference
 
 All operational options are configured in ../config.toml. Each has an explanatory
 comment there; README.md documents behavior, defaults, examples and dependencies.
@@ -25,7 +25,10 @@ Run from the project directory (after installing requirements.txt and editing co
 Dry-run: set [dry_run] enabled=true in config.toml.
 Optional real dry-run sends: set send_mqtt=true and/or send_email=true in that table.
 For real maintenance set [dry_run] enabled=false.
-Real-run transport switches are [mqtt] enabled and [email] enabled.
+Real-run transport master switches are [mqtt] enabled and [email] enabled.
+Successful real-run sends are separately opt-in with [mqtt] on_success and
+[email] on_success (both default false). Failures still send whenever the
+corresponding master channel is enabled.
 Default dry-run sends nothing. Config targets are required even in dry-run.
 Email delivery uses local sendmail/Postfix; [sendmail] path can override auto-detection.
 

@@ -4,6 +4,15 @@
 
 Use the single canonical filename `VERSIONING.md`. Do not create a case-only `versioning.md` duplicate: it conflicts on case-insensitive filesystems.
 
+## 0.0.7 — 2026-09-25
+
+- Add `mqtt.on_success = false` and `email.on_success = false` as explicit safe defaults. A successful real maintenance run sends no MQTT/email unless the corresponding channel is enabled and its `on_success` setting is explicitly set to `true`.
+- Keep failure reporting independent of the success opt-in: `pbs_maintenance_failed` is still sent on every real-run channel whose master `enabled` switch is true, even when `on_success = false`.
+- Keep dry-run notification semantics unchanged: `dry_run.send_mqtt` and `dry_run.send_email` remain separate explicit opt-ins and do not depend on the real-run channel `enabled` or `on_success` values.
+- Keep preflight conservative: an enabled real-run channel is validated before maintenance even when success sending is disabled, because it may be needed for a failure report.
+- Update both TOML files, README, CLI reference, code map, tests, verification notes, version metadata, and release manifest for the new notification controls.
+- Preserve maintenance ordering, fail-stop behavior, prune safety, MQTT payload schema/event names, local sendmail transport, `-c`/`--config`, logging, and all previous project paths.
+
 ## 0.0.6 — 2026-09-25
 
 - Add `-c PATH` as the exact short alias for the existing `--config PATH` selector. Both names feed the same argparse destination/type/default; relative paths still resolve from the caller working directory, and logs still stay beside the resolved launcher.

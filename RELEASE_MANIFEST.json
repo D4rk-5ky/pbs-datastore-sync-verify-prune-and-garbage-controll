@@ -1,11 +1,11 @@
 {
-  "version": "0.0.6",
+  "version": "0.0.7",
   "source_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-main.zip",
   "source_sha256": "50093438e40268b938fedf44ccaee1dda9571bd7cb5aff993885440c0dfdfca9",
-  "source_note": "Historical unversioned-source archive metadata retained from prior manifests; that older archive was not supplied for this 0.0.6 work and was not independently re-read.",
-  "prior_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-0.0.5.zip",
-  "prior_sha256": "c64ccb089c960bfd4350f2f3d1dea02b265b2ad02aba891a9166e15d33d82493",
-  "prior_note": "The supplied/generated 0.0.5 ZIP is the immediate baseline and its complete project tree was inspected before 0.0.6 changes.",
+  "source_note": "Historical unversioned-source archive metadata retained from prior manifests; that older archive was not supplied for this 0.0.7 work and was not independently re-read.",
+  "prior_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-0.0.6.zip",
+  "prior_sha256": "7398d9a86fc549114e306cfe604e968dc3a6c926775571926e504504ac39a4f8",
+  "prior_note": "The supplied/generated 0.0.6 ZIP is the immediate baseline and its complete project tree was inspected before 0.0.7 changes.",
   "original_files": [
     {
       "path": "pbs-datastore-sync-verify,prune-gc.py",
@@ -16,7 +16,7 @@
     {
       "path": "README.md",
       "source_sha256": "46dc8489208408eb46622bfccfc4f52b58cba485243b3074d02c485a086037dc",
-      "release_sha256": "e8e3a776f4c76c15f12964320147791e340c048b3ac61436d8fb334a5d502a2f",
+      "release_sha256": "8510fb689eaf4c41e032ee0e83def27098905615d025036dcd2a98481c3a9495",
       "status": "modified"
     }
   ],
@@ -52,90 +52,90 @@
     },
     {
       "path": "README.md",
-      "prior_size": 22766,
-      "prior_sha256": "3e6f1dd38db882737bf6a0fa60424015be4c337fc2c6c476b717d0ee86587e18",
-      "release_size": 23675,
-      "release_sha256": "e8e3a776f4c76c15f12964320147791e340c048b3ac61436d8fb334a5d502a2f",
+      "prior_size": 23675,
+      "prior_sha256": "e8e3a776f4c76c15f12964320147791e340c048b3ac61436d8fb334a5d502a2f",
+      "release_size": 24682,
+      "release_sha256": "8510fb689eaf4c41e032ee0e83def27098905615d025036dcd2a98481c3a9495",
       "status": "modified"
     },
     {
       "path": "RELEASE_MANIFEST.json",
-      "prior_size": 11408,
-      "prior_sha256": "07410f62d4834b5aadd9989f97cc4978c664b63f52fda243c282896b2735a310",
+      "prior_size": 11391,
+      "prior_sha256": "40fe94367b8cebb91f452f154e668b01d255fc7bef08570d1a9c3b6795c33c32",
       "release_size": null,
       "release_sha256": null,
       "status": "modified-self-excluded"
     },
     {
       "path": "VERIFICATION.md",
-      "prior_size": 5090,
-      "prior_sha256": "7f51846672e7696d7968a88df6c9a52f40ba792115970297896df288180d3dae",
-      "release_size": 5764,
-      "release_sha256": "603065a4c3cc3c6b9f84ff2df4522f1015bad637aba6c4f210ca851798a457c2",
+      "prior_size": 5764,
+      "prior_sha256": "603065a4c3cc3c6b9f84ff2df4522f1015bad637aba6c4f210ca851798a457c2",
+      "release_size": 2833,
+      "release_sha256": "fea013a430ddd64298f05d86da7db2b2b6fc9a9919206a89c56d7d8996480a9c",
       "status": "modified"
     },
     {
       "path": "VERSION",
       "prior_size": 6,
-      "prior_sha256": "ae86e790678acc7fc14f18e559c2f8c4972634d5b1b74a2a297565b8c90f804a",
+      "prior_sha256": "1ad42263137b3f2736f1e9358a51fa2a9affc2e4431846423aaae730107bc5fb",
       "release_size": 6,
-      "release_sha256": "1ad42263137b3f2736f1e9358a51fa2a9affc2e4431846423aaae730107bc5fb",
+      "release_sha256": "fc5ee663ec9085c4d4fdc11401a3b21dd931a3fa33e335df4fc0ff61870bfaa0",
       "status": "modified"
     },
     {
       "path": "VERSIONING.md",
-      "prior_size": 10995,
-      "prior_sha256": "2d3a575b0880e5c2ef8b229527a204519f706005a5794967c7953a7095004dc6",
-      "release_size": 12656,
-      "release_sha256": "6e2556d0a71d5c8ef7473c9c9ec61071c4db74a6e27e324aeaa4b11356c6d497",
+      "prior_size": 12656,
+      "prior_sha256": "6e2556d0a71d5c8ef7473c9c9ec61071c4db74a6e27e324aeaa4b11356c6d497",
+      "release_size": 13848,
+      "release_sha256": "52a35c1a15ca075f4176f5e2d84244d4e78d62f7bcb73971b9f675183fab2546",
       "status": "modified"
     },
     {
       "path": "commented_code_map.md",
-      "prior_size": 19107,
-      "prior_sha256": "92455953ee0982cb602a7ae2ab1040f39abf125e8be284cd1e0a5d5a5a187d28",
-      "release_size": 15971,
-      "release_sha256": "d142b8a707b4308bc203904870b5a33fa34ca6b6a4e39b3299a71306e065c82d",
+      "prior_size": 15971,
+      "prior_sha256": "d142b8a707b4308bc203904870b5a33fa34ca6b6a4e39b3299a71306e065c82d",
+      "release_size": 16359,
+      "release_sha256": "319977cc66764a7fda942a3599627c92fbab03e00d4465769815224488ff87ec",
       "status": "modified"
     },
     {
       "path": "config-example.toml",
-      "prior_size": 7998,
-      "prior_sha256": "ad3c95e9383d0eb036959fd291287b449720e78be917725cad87db9983d6a9b0",
-      "release_size": 7374,
-      "release_sha256": "dc6982cae6c9d81a141bcf8acf27da4b7be1c773efb7f63b79e234259fcada8c",
+      "prior_size": 7374,
+      "prior_sha256": "dc6982cae6c9d81a141bcf8acf27da4b7be1c773efb7f63b79e234259fcada8c",
+      "release_size": 7835,
+      "release_sha256": "4f7eb59c9dc60cb0fb6c22f1b55a449075b6014c26245d8d8ceeef403f2ae050",
       "status": "modified"
     },
     {
       "path": "config.toml",
-      "prior_size": 7840,
-      "prior_sha256": "b59b71bbbd38adc627d4ffa4fd23fb0be0ab931869a5fa9105a6fb9680ba591c",
-      "release_size": 7216,
-      "release_sha256": "45820c0cd019ef5d5903556eca7d74724cb0f6c007e6205828484e66049d3671",
+      "prior_size": 7216,
+      "prior_sha256": "45820c0cd019ef5d5903556eca7d74724cb0f6c007e6205828484e66049d3671",
+      "release_size": 7677,
+      "release_sha256": "f9c08818cc74cada2662eca230b63f8e00e6ca8783380dfcc77c7130df399973",
       "status": "modified"
     },
     {
       "path": "examples/cli-options.txt",
-      "prior_size": 2164,
-      "prior_sha256": "107501f67a5399696504c7c2007c858d87088edbe850b7957a8dca8c154efb1b",
-      "release_size": 2407,
-      "release_sha256": "5929a74411ae150daa48f006ca76e19237c72d31688b4b6856c4ca4217face2f",
+      "prior_size": 2407,
+      "prior_sha256": "5929a74411ae150daa48f006ca76e19237c72d31688b4b6856c4ca4217face2f",
+      "release_size": 2604,
+      "release_sha256": "df23f2c202c20cde2e13d1bfc405493fcdf64268129b0b870cd98cc2b70abb47",
       "status": "modified"
     },
     {
       "path": "pbs-datastore-sync-verify,prune-gc.py",
-      "prior_size": 2683,
-      "prior_sha256": "2b673fde6f221295eecf1051c566bfbc6acd3ae5d81a32ef2a177c4f41149c31",
+      "prior_size": 2700,
+      "prior_sha256": "ad817e0b368b2aef2ac70da761abfcbdb9b299a130a933e33416c139b6db6da3",
       "release_size": 2700,
       "release_sha256": "ad817e0b368b2aef2ac70da761abfcbdb9b299a130a933e33416c139b6db6da3",
-      "status": "modified"
+      "status": "unchanged"
     },
     {
       "path": "pbs_maintenance/__init__.py",
       "prior_size": 246,
-      "prior_sha256": "c30f5628ce841d9d44745670792cb7298de3af1cc1785e13ce23d6f1473c8d0d",
+      "prior_sha256": "270446316107f422244514e1fef63e560eb403cad062af74210a9b946e2c3a0c",
       "release_size": 246,
-      "release_sha256": "270446316107f422244514e1fef63e560eb403cad062af74210a9b946e2c3a0c",
+      "release_sha256": "f53cf8e1414f971438630e11e902e56bb0e4858c5ab2a1858360e280d43e5f86",
       "status": "modified"
     },
     {
@@ -148,18 +148,18 @@
     },
     {
       "path": "pbs_maintenance/mail.py",
-      "prior_size": 1734,
-      "prior_sha256": "e0a57287e30760b55c77efd8ef43c801725d0f1792ecf31680ad69898702dbc4",
+      "prior_size": 2328,
+      "prior_sha256": "83e857a3ef2426775dae40d2baae5a3ad55cbe117a9be4334de8b6f54c0c61da",
       "release_size": 2328,
       "release_sha256": "83e857a3ef2426775dae40d2baae5a3ad55cbe117a9be4334de8b6f54c0c61da",
-      "status": "modified"
+      "status": "unchanged"
     },
     {
       "path": "pbs_maintenance/maintenance.py",
-      "prior_size": 9976,
-      "prior_sha256": "5932b195656db63e6a115c19b86068615961b367cfc7d41e257cd386b470f276",
-      "release_size": 9995,
-      "release_sha256": "7def2160e4444502a428621ef45c597390bea1403b91b7d1c73e2109fe64e906",
+      "prior_size": 9995,
+      "prior_sha256": "7def2160e4444502a428621ef45c597390bea1403b91b7d1c73e2109fe64e906",
+      "release_size": 10061,
+      "release_sha256": "d1f8edaf8cd91d11e5a71b40862f1a09fadeb9065aa85620b06f51d3ae3b9035",
       "status": "modified"
     },
     {
@@ -172,10 +172,10 @@
     },
     {
       "path": "pbs_maintenance/settings.py",
-      "prior_size": 7756,
-      "prior_sha256": "3198ed11637b2a713cea330cf715b9e91e02d1fb7bf6942d759a3eeca1e075f7",
-      "release_size": 7698,
-      "release_sha256": "42b2736c30b022189ca093887007d7d9a33b10d4e0b06a56984273ff31356a3e",
+      "prior_size": 7698,
+      "prior_sha256": "42b2736c30b022189ca093887007d7d9a33b10d4e0b06a56984273ff31356a3e",
+      "release_size": 8142,
+      "release_sha256": "33a666c7e76b5882d78bf729828c415b6cabb70d1be63847547349c3f6ed99a4",
       "status": "modified"
     },
     {
@@ -188,10 +188,10 @@
     },
     {
       "path": "tests/test_maintenance.py",
-      "prior_size": 27064,
-      "prior_sha256": "7432119f25336dd4c465df998139f9dd777a74448e4d21dc47fa36c07faa0c58",
-      "release_size": 27152,
-      "release_sha256": "1c5405807ea32d4ae2779f0ff63dd342f0628250c1053e156c0772728988ef3d",
+      "prior_size": 27152,
+      "prior_sha256": "1c5405807ea32d4ae2779f0ff63dd342f0628250c1053e156c0772728988ef3d",
+      "release_size": 29058,
+      "release_sha256": "6374e7e094ae93bdfc773659894a8c5b6435abbb451edfa7f6888f3a4790aa65",
       "status": "modified"
     }
   ],
@@ -225,43 +225,43 @@
     },
     {
       "path": "README.md",
-      "size": 23675,
-      "sha256": "e8e3a776f4c76c15f12964320147791e340c048b3ac61436d8fb334a5d502a2f"
+      "size": 24682,
+      "sha256": "8510fb689eaf4c41e032ee0e83def27098905615d025036dcd2a98481c3a9495"
     },
     {
       "path": "VERIFICATION.md",
-      "size": 5764,
-      "sha256": "603065a4c3cc3c6b9f84ff2df4522f1015bad637aba6c4f210ca851798a457c2"
+      "size": 2833,
+      "sha256": "fea013a430ddd64298f05d86da7db2b2b6fc9a9919206a89c56d7d8996480a9c"
     },
     {
       "path": "VERSION",
       "size": 6,
-      "sha256": "1ad42263137b3f2736f1e9358a51fa2a9affc2e4431846423aaae730107bc5fb"
+      "sha256": "fc5ee663ec9085c4d4fdc11401a3b21dd931a3fa33e335df4fc0ff61870bfaa0"
     },
     {
       "path": "VERSIONING.md",
-      "size": 12656,
-      "sha256": "6e2556d0a71d5c8ef7473c9c9ec61071c4db74a6e27e324aeaa4b11356c6d497"
+      "size": 13848,
+      "sha256": "52a35c1a15ca075f4176f5e2d84244d4e78d62f7bcb73971b9f675183fab2546"
     },
     {
       "path": "commented_code_map.md",
-      "size": 15971,
-      "sha256": "d142b8a707b4308bc203904870b5a33fa34ca6b6a4e39b3299a71306e065c82d"
+      "size": 16359,
+      "sha256": "319977cc66764a7fda942a3599627c92fbab03e00d4465769815224488ff87ec"
     },
     {
       "path": "config-example.toml",
-      "size": 7374,
-      "sha256": "dc6982cae6c9d81a141bcf8acf27da4b7be1c773efb7f63b79e234259fcada8c"
+      "size": 7835,
+      "sha256": "4f7eb59c9dc60cb0fb6c22f1b55a449075b6014c26245d8d8ceeef403f2ae050"
     },
     {
       "path": "config.toml",
-      "size": 7216,
-      "sha256": "45820c0cd019ef5d5903556eca7d74724cb0f6c007e6205828484e66049d3671"
+      "size": 7677,
+      "sha256": "f9c08818cc74cada2662eca230b63f8e00e6ca8783380dfcc77c7130df399973"
     },
     {
       "path": "examples/cli-options.txt",
-      "size": 2407,
-      "sha256": "5929a74411ae150daa48f006ca76e19237c72d31688b4b6856c4ca4217face2f"
+      "size": 2604,
+      "sha256": "df23f2c202c20cde2e13d1bfc405493fcdf64268129b0b870cd98cc2b70abb47"
     },
     {
       "path": "pbs-datastore-sync-verify,prune-gc.py",
@@ -271,7 +271,7 @@
     {
       "path": "pbs_maintenance/__init__.py",
       "size": 246,
-      "sha256": "270446316107f422244514e1fef63e560eb403cad062af74210a9b946e2c3a0c"
+      "sha256": "f53cf8e1414f971438630e11e902e56bb0e4858c5ab2a1858360e280d43e5f86"
     },
     {
       "path": "pbs_maintenance/logging_config.py",
@@ -285,8 +285,8 @@
     },
     {
       "path": "pbs_maintenance/maintenance.py",
-      "size": 9995,
-      "sha256": "7def2160e4444502a428621ef45c597390bea1403b91b7d1c73e2109fe64e906"
+      "size": 10061,
+      "sha256": "d1f8edaf8cd91d11e5a71b40862f1a09fadeb9065aa85620b06f51d3ae3b9035"
     },
     {
       "path": "pbs_maintenance/mqtt.py",
@@ -295,8 +295,8 @@
     },
     {
       "path": "pbs_maintenance/settings.py",
-      "size": 7698,
-      "sha256": "42b2736c30b022189ca093887007d7d9a33b10d4e0b06a56984273ff31356a3e"
+      "size": 8142,
+      "sha256": "33a666c7e76b5882d78bf729828c415b6cabb70d1be63847547349c3f6ed99a4"
     },
     {
       "path": "requirements.txt",
@@ -305,8 +305,8 @@
     },
     {
       "path": "tests/test_maintenance.py",
-      "size": 27152,
-      "sha256": "1c5405807ea32d4ae2779f0ff63dd342f0628250c1053e156c0772728988ef3d"
+      "size": 29058,
+      "sha256": "6374e7e094ae93bdfc773659894a8c5b6435abbb451edfa7f6888f3a4790aa65"
     }
   ],
   "manifest_note": "Manifest self-hash is excluded to avoid recursion. The final ZIP SHA-256 and ZIP CRC verification cover the complete packaged archive, including this manifest."

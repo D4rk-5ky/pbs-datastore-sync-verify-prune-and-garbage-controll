@@ -1,6 +1,6 @@
 # PBS datastore maintenance
 
-Version **0.0.6**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and local sendmail/Postfix can report outcomes, including explicitly requested dry-run notifications.
+Version **0.0.7**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and local sendmail/Postfix can report outcomes, including explicitly requested dry-run notifications. Real-run success notifications are opt-in and default off; enabled channels still report failures.
 
 ## ⚠️ Disclaimer / Liability
 
@@ -53,7 +53,7 @@ The first command creates an isolated environment. The second installs Paho for 
 2. Leave `[dry_run] enabled = true`, `send_mqtt = false`, and `send_email = false`. The supplied file deliberately leaves your job IDs/targets empty: it will report a configuration error until you fill them in.
 3. Run the script, inspect the planned commands in the terminal and `logs/`, and review the selected PBS jobs and retention policy.
 4. To test notifications, configure the desired transport and explicitly enable its dry-run send setting.
-5. To perform actual maintenance, set `[dry_run] enabled = false` and configure or disable real-run MQTT/email as appropriate. Run the same command.
+5. To perform actual maintenance, set `[dry_run] enabled = false` and configure or disable real-run MQTT/email as appropriate. Real-run success notifications remain off unless `mqtt.on_success` and/or `email.on_success` is explicitly enabled. Run the same command.
 
 ```bash
 .venv/bin/python 'pbs-datastore-sync-verify,prune-gc.py'
@@ -187,7 +187,8 @@ MQTT uses the distinct event `pbs_maintenance_dry_run` with `dry_run: true` and 
 
 | Setting | Default | Meaning / example |
 | --- | --- | --- |
-| `mqtt.enabled` | `true` | Send real-run outcomes; dry-run is controlled separately. `false` permits real runs without MQTT. |
+| `mqtt.enabled` | `true` | Master switch for real-run MQTT notifications. Failures send whenever this is true. `false` disables all real-run MQTT. Dry-run is controlled separately. |
+| `mqtt.on_success` | `false` | Send `pbs_maintenance_success` after a successful real run. Default false keeps successful runs silent on MQTT. Does not suppress failures. |
 | `mqtt.host` | `""` | Broker hostname/IP, required when selected, e.g. `"mqtt.example.lan"`. |
 | `mqtt.port` | `1883` | TCP port, 1–65535. Set `8883` explicitly if your TLS broker uses it. |
 | `mqtt.topic` | `""` | Required publish topic, e.g. `"pbs/maintenance/status"`; no `+`/`#` wildcards. |
@@ -209,13 +210,14 @@ Email delivery follows the same local-sendmail pattern as the related Proxmox ba
 
 | Setting | Default | Meaning / example |
 | --- | --- | --- |
-| `email.enabled` | `false` | Send real-run success/failure messages; dry-run uses `dry_run.send_email` instead. |
+| `email.enabled` | `false` | Master switch for real-run email. Failures send whenever this is true. Dry-run uses `dry_run.send_email` instead. |
+| `email.on_success` | `false` | Send email after a successful real run. Default false keeps successful runs silent by email. Does not suppress failures. |
 | `email.from_address` | `""` | Required sender mailbox when email is selected, e.g. `"pbs@example.com"`. |
 | `email.to_addresses` | `[]` | Required nonempty array of recipient mailboxes, e.g. `["admin@example.com"]`. |
 | `email.subject_prefix` | `"[PBS maintenance]"` | Single-line prefix. The app appends `SUCCESS`, `FAILED` or `DRY RUN`, plus hostname. |
 | `sendmail.path` | `""` | Optional explicit sendmail executable. Empty auto-detects `/usr/sbin/sendmail`, `/usr/bin/sendmail`, then `sendmail` in `PATH`. Relative configured paths resolve from the TOML directory. |
 
-When email is selected, preflight requires a usable sendmail-compatible executable before maintenance starts. The send command is exactly `SENDMAIL_PATH -t`; the RFC message bytes are supplied on stdin with no shell. A nonzero sendmail exit makes the requested notification fail. The email body contains the same JSON outcome data as MQTT; logs are referenced by path, not attached. MQTT and email are attempted independently, so one notification transport failing does not suppress the other. No automatic retry is performed by this script; a local MTA may queue/retry according to its own configuration.
+When `email.enabled = true`, preflight requires a usable sendmail-compatible executable before maintenance starts even if `email.on_success = false`, because a failure may still need to be reported. The send command is exactly `SENDMAIL_PATH -t`; the RFC message bytes are supplied on stdin with no shell. A nonzero sendmail exit makes the requested notification fail. The email body contains the same JSON outcome data as MQTT; logs are referenced by path, not attached. MQTT and email are attempted independently, so one notification transport failing does not suppress the other. For real runs, failure delivery uses only the channel master switch (`mqtt.enabled` / `email.enabled`); success delivery additionally requires the matching `on_success = true`. No automatic retry is performed by this script; a local MTA may queue/retry according to its own configuration.
 
 Typical Debian/PBS setup uses Postfix. For example:
 
@@ -248,7 +250,7 @@ Pruning and GC can remove data. The app does not create jobs, check cross-job da
 
 All outcome events include `hostname`, `time_utc` (UTC ISO timestamp), selected `steps`, active `sync_job`/`verify_job`, `prune_mode`, `prune_job`, `prune_datastore`, `prune_keep`, GC `datastore`, `version`, `dry_run`, `log_file`, and `err_file`. Inactive targets are null. `steps` is a selection map, not a completed-step ledger. The error path is null if no error file existed when the event was composed; a later notification error can create that file afterward.
 
-- `pbs_maintenance_success`: all selected CLI commands returned zero.
+- `pbs_maintenance_success`: all selected CLI commands returned zero. It is only sent on a real-run channel when that channel is enabled **and** its `on_success` setting is true.
 - `pbs_maintenance_failed`: adds `failed_step`, underlying `returncode`, shell-quoted `command`, `stdout_tail`, and `stderr_tail`. A caught launch error uses code 127. Tail fields can include contextual non-error output; the `.err` file remains error-only.
 - `pbs_maintenance_dry_run`: adds planned `commands` arrays; no PBS commands were executed.
 

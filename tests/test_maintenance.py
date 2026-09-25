@@ -93,6 +93,7 @@ class MaintenanceTests(unittest.TestCase):
         return rc, commands, mqtt_events, email_events
 
     def test_fixed_order_and_success(self):
+        self.config['mqtt']['on_success'] = True
         rc, commands, events, mail = self.run_app()
         self.assertEqual(rc, 0)
         self.assertEqual(commands, [
@@ -147,6 +148,7 @@ class MaintenanceTests(unittest.TestCase):
         self.config['prune']['job'] = 'ambiguous'
         self.assertEqual(self.run_app(), (2, [], [], []))
         self.config['prune']['job'] = ''
+        self.config['mqtt']['on_success'] = True
         rc, commands, events, _ = self.run_app()
         self.assertEqual((rc, commands), (0, [expected]))
         self.assertEqual(events[0]['payload']['prune_keep'], values)
@@ -155,6 +157,7 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_single_enabled_step_and_disabled_payload_fields(self):
         self.config['steps'] = dict(sync=False, verify=True, prune=False, gc=False)
+        self.config['mqtt']['on_success'] = True
         rc, commands, events, _ = self.run_app()
         self.assertEqual(rc, 0)
         self.assertEqual(commands, [['proxmox-backup-manager', 'verify-job', 'run', 'verify-test']])
@@ -163,7 +166,8 @@ class MaintenanceTests(unittest.TestCase):
             self.assertIsNone(payload[key])
 
     def test_notification_failures_do_not_suppress_other_channel(self):
-        self.config['email']['enabled'] = True
+        self.config['mqtt']['on_success'] = True
+        self.config['email'].update(enabled=True, on_success=True)
         for mqtt_error, email_error, failed_step in [(True, False, None), (False, True, None),
                                                    (True, True, 'verify-job')]:
             with self.subTest(mqtt=mqtt_error, email=email_error, step=failed_step):
@@ -172,6 +176,30 @@ class MaintenanceTests(unittest.TestCase):
                 self.assertEqual(rc, 1)
                 self.assertEqual((len(events), len(mail)), (1, 1))
                 self.assertEqual(len(commands), 2 if failed_step else 4)
+
+    def test_success_notifications_are_explicit_opt_ins(self):
+        # Master MQTT is enabled by default, but success is silent until opted in.
+        rc, commands, events, mail_events = self.run_app()
+        self.assertEqual((rc, len(commands), events, mail_events), (0, 4, [], []))
+
+        self.config['mqtt']['on_success'] = True
+        rc, _, events, mail_events = self.run_app()
+        self.assertEqual((rc, len(events), len(mail_events)), (0, 1, 0))
+        self.assertEqual(events[0]['payload']['event'], 'pbs_maintenance_success')
+
+        self.config['mqtt']['on_success'] = False
+        self.config['email'].update(enabled=True, on_success=True)
+        rc, _, events, mail_events = self.run_app()
+        self.assertEqual((rc, len(events), len(mail_events)), (0, 0, 1))
+        self.assertEqual(mail_events[0]['event'], 'pbs_maintenance_success')
+
+    def test_failure_notifications_ignore_success_opt_out(self):
+        self.config['mqtt']['on_success'] = False
+        self.config['email'].update(enabled=True, on_success=False)
+        rc, commands, events, mail_events = self.run_app(fail_step='verify-job')
+        self.assertEqual((rc, len(commands), len(events), len(mail_events)), (1, 2, 1, 1))
+        self.assertEqual(events[0]['payload']['event'], 'pbs_maintenance_failed')
+        self.assertEqual(mail_events[0]['event'], 'pbs_maintenance_failed')
 
     def test_failure_tail_limit(self):
         self.config['mqtt']['max_output_chars'] = 4
@@ -230,7 +258,7 @@ class MaintenanceTests(unittest.TestCase):
             ('--help', ('-c, --config PATH', 'operational settings are not CLI flags',
                         'relative paths resolve from the current working directory',
                         'Logs still go beside the launcher')),
-            ('--version', ('0.0.6',)),
+            ('--version', ('0.0.7',)),
         ]
         for flag, expected_texts in cases:
             with self.subTest(flag=flag), patch.object(sys, 'argv', [str(SCRIPT), flag]), \
@@ -294,6 +322,9 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(bundled, settings.DEFAULT_CONFIG)
         self.assertTrue(bundled['dry_run']['enabled'])
         self.assertEqual(settings.notification_channels(bundled), dict(mqtt=False, email=False))
+        live = deepcopy(bundled); live['dry_run']['enabled'] = False
+        self.assertEqual(settings.notification_channels(live, 'pbs_maintenance_success'), dict(mqtt=False, email=False))
+        self.assertEqual(settings.notification_channels(live, 'pbs_maintenance_failed'), dict(mqtt=True, email=False))
         with (SCRIPT.parent/'config-example.toml').open('rb') as stream:
             self.assertEqual(settings.tomllib.load(stream), settings.DEFAULT_CONFIG)
 

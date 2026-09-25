@@ -25,11 +25,11 @@ DEFAULT_CONFIG = {
               "keep_daily": "", "keep_weekly": "", "keep_monthly": "", "keep_yearly": ""},
     "logging": {"verbose": False},
     "dry_run": {"enabled": True, "send_mqtt": False, "send_email": False},
-    "mqtt": {"enabled": True, "host": "", "port": 1883, "topic": "",
+    "mqtt": {"enabled": True, "on_success": False, "host": "", "port": 1883, "topic": "",
              "username": "", "password": "", "tls": False, "cafile": "",
              "insecure": False, "client_id": "", "retain": False,
              "max_output_chars": 4000, "timeout_sec": 15},
-    "email": {"enabled": False, "from_address": "", "to_addresses": [],
+    "email": {"enabled": False, "on_success": False, "from_address": "", "to_addresses": [],
               "subject_prefix": "[PBS maintenance]"},
     "sendmail": {"path": ""},
 }
@@ -98,11 +98,19 @@ def _any_keep_set(args: argparse.Namespace) -> bool:
     )
 
 
-def notification_channels(config: Dict[str, Any]) -> Dict[str, bool]:
-    """Dry-run opt-ins are independent of normal-run channel enable switches."""
+def notification_channels(config: Dict[str, Any], event: str | None = None) -> Dict[str, bool]:
+    """Select transports for validation/dry-run/failure, with success explicitly opt-in."""
     if config["dry_run"]["enabled"]:
         return {name: config["dry_run"]["send_" + name] for name in ("mqtt", "email")}
-    return {name: config[name]["enabled"] for name in ("mqtt", "email")}
+
+    channels = {name: config[name]["enabled"] for name in ("mqtt", "email")}
+    if event == "pbs_maintenance_success":
+        return {name: channels[name] and config[name]["on_success"] for name in ("mqtt", "email")}
+
+    # Validation (event=None) and failure delivery both use the master channel
+    # switches. This guarantees that disabling success messages does not suppress
+    # a later failure notification.
+    return channels
 
 
 def validate_config(config: Dict[str, Any], args: argparse.Namespace) -> None:
