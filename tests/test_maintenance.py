@@ -5,14 +5,21 @@ import importlib.util
 import io
 import json
 import logging
+import os
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'pbs-datastore-sync-verify,prune-gc.py'
-spec = importlib.util.spec_from_file_location('pbs_maintenance', SCRIPT)
+# Make the sibling package importable when unittest starts outside the project.
+sys.path.insert(0, str(SCRIPT.parent))
+from pbs_maintenance import settings, maintenance, logging_config, mail, mqtt as mqtt_client
+
+spec = importlib.util.spec_from_file_location('pbs_cli', SCRIPT)
 app = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = app
 spec.loader.exec_module(app)
@@ -34,7 +41,7 @@ class MaintenanceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.folder = Path(self.temp.name)
-        self.config = deepcopy(app.DEFAULT_CONFIG)
+        self.config = deepcopy(settings.DEFAULT_CONFIG)
         self.config['jobs'].update(sync_job='sync-test', verify_job='verify-test', gc_datastore='store-test')
         self.config['prune']['job'] = 'prune-test'
         self.config['dry_run']['enabled'] = False
@@ -56,7 +63,7 @@ class MaintenanceTests(unittest.TestCase):
             commands.append(argv)
             if launch_error:
                 raise FileNotFoundError('test missing command')
-            return app.CmdResult(argv, 7 if argv[1] == fail_step else 0,
+            return maintenance.CmdResult(argv, 7 if argv[1] == fail_step else 0,
                                  'output tail', 'error tail' if argv[1] == fail_step else '')
 
         def mqtt_send(**kwargs):
@@ -70,13 +77,14 @@ class MaintenanceTests(unittest.TestCase):
                 raise RuntimeError('test mail unavailable')
 
         with patch.object(app, 'SCRIPT_DIR', self.folder), \
+             patch.object(logging_config, 'SCRIPT_DIR', self.folder), \
              patch.object(sys, 'argv', [str(SCRIPT)]), \
-             patch.object(app, 'mqtt', object()), \
-             patch.object(app, 'run_cmd_stream', side_effect=run), \
-             patch.object(app, 'mqtt_publish', side_effect=mqtt_send), \
-             patch.object(app, 'email_send', side_effect=email_send), \
+             patch.object(mqtt_client, 'mqtt', object()), \
+             patch.object(maintenance, 'run_cmd_stream', side_effect=run), \
+             patch.object(mqtt_client, 'mqtt_publish', side_effect=mqtt_send), \
+             patch.object(mail, 'email_send', side_effect=email_send), \
              patch.object(app.shutil, 'which', return_value='/test/proxmox-backup-manager') as which, \
-             patch.object(app.subprocess, 'Popen', side_effect=AssertionError('No child allowed in mocked workflow')), \
+             patch.object(maintenance.subprocess, 'Popen', side_effect=AssertionError('No child allowed in mocked workflow')), \
              contextlib.redirect_stderr(io.StringIO()):
             rc = app.main()
             if config['dry_run']['enabled']:
@@ -218,9 +226,9 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(Path(events[0]['payload']['err_file']).exists())
 
     def test_help_and_version_require_no_configuration(self):
-        for flag, expected in [('--help', '--config'), ('--version', '0.0.3')]:
+        for flag, expected in [('--help', '--config'), ('--version', '0.0.4')]:
             with self.subTest(flag=flag), patch.object(sys, 'argv', [str(SCRIPT), flag]), \
-                 patch.object(app, 'build_logger') as log, patch.object(app, 'load_config') as load, \
+                 patch.object(logging_config, 'build_logger') as log, patch.object(settings, 'load_config') as load, \
                  contextlib.redirect_stdout(io.StringIO()) as output:
                 with self.assertRaises(SystemExit) as result:
                     app.main()
@@ -234,13 +242,13 @@ class MaintenanceTests(unittest.TestCase):
                          'print("WARNING: slow", file=sys.stderr); print("0 errors"); '
                          'print("TASK ERROR: real failure", file=sys.stderr); sys.exit(7)')
         with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
-            logger = app.build_logger(True, self.folder/'logs')
+            logger = logging_config.build_logger(True, self.folder/'logs')
             try:
-                result = app.run_cmd_stream([sys.executable, str(child)], env=None, logger=logger)
+                result = maintenance.run_cmd_stream([sys.executable, str(child)], env=None, logger=logger)
                 logger.warning('ordinary warning')
                 full_path, err_path = logger.log_file, logger.err_file
             finally:
-                app.close_logger(logger)
+                logging_config.close_logger(logger)
         self.assertEqual(result.returncode, 7)
         self.assertIn('ordinary stdout', result.stdout)
         self.assertIn('progress 50%', result.stderr)
@@ -256,13 +264,13 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_stderr_progress_alone_does_not_create_err(self):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            logger = app.build_logger(False, self.folder/'logs')
+            logger = logging_config.build_logger(False, self.folder/'logs')
             try:
-                app.run_cmd_stream([sys.executable, '-c', 'import sys; print("progress", file=sys.stderr)'],
+                maintenance.run_cmd_stream([sys.executable, '-c', 'import sys; print("progress", file=sys.stderr)'],
                                    env=None, logger=logger)
                 err_path = logger.err_file
             finally:
-                app.close_logger(logger)
+                logging_config.close_logger(logger)
         self.assertFalse(err_path.exists())
 
     def test_config_errors_are_logged_without_toml_source(self):
@@ -274,18 +282,18 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(self.run_app(raw='[unknown]\nx = true'), (2, [], [], []))
 
     def test_bundled_config_covers_defaults_and_is_safe(self):
-        bundled = app.load_config(SCRIPT.parent/'config-example.toml')
-        self.assertEqual(bundled, app.DEFAULT_CONFIG)
+        bundled = settings.load_config(SCRIPT.parent/'config-example.toml')
+        self.assertEqual(bundled, settings.DEFAULT_CONFIG)
         self.assertTrue(bundled['dry_run']['enabled'])
-        self.assertEqual(app.notification_channels(bundled), dict(mqtt=False, email=False))
+        self.assertEqual(settings.notification_channels(bundled), dict(mqtt=False, email=False))
         with (SCRIPT.parent/'config-example.toml').open('rb') as stream:
-            self.assertEqual(app.tomllib.load(stream), app.DEFAULT_CONFIG)
+            self.assertEqual(settings.tomllib.load(stream), settings.DEFAULT_CONFIG)
 
     def test_config_relative_certificate_paths(self):
         self.config['mqtt']['cafile'] = 'mqtt.pem'
         self.config['email']['cafile'] = 'smtp.pem'
         path = self.folder/'custom.toml'; write_toml(path, self.config)
-        loaded = app.load_config(path)
+        loaded = settings.load_config(path)
         self.assertEqual(loaded['mqtt']['cafile'], str(self.folder/'mqtt.pem'))
         self.assertEqual(loaded['email']['cafile'], str(self.folder/'smtp.pem'))
 
@@ -301,29 +309,29 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(self.run_app(), (2, [], [], []))
 
     def test_missing_paho_prevents_real_work_but_not_silent_dry_run(self):
-        args = app.config_to_args(self.config)
-        with patch.object(app, 'mqtt', None):
+        args = settings.config_to_args(self.config)
+        with patch.object(mqtt_client, 'mqtt', None):
             with self.assertRaisesRegex(ValueError, 'paho-mqtt'):
-                app.validate_config(self.config, args)
+                settings.validate_config(self.config, args)
             self.config['dry_run']['enabled'] = True
-            app.validate_config(self.config, args)
+            settings.validate_config(self.config, args)
 
     def test_missing_toml_parser_is_actionable(self):
-        with patch.object(app, 'tomllib', None):
+        with patch.object(settings, 'tomllib', None):
             with self.assertRaisesRegex(ValueError, 'tomli'):
-                app.load_config(self.folder/'config.toml')
+                settings.load_config(self.folder/'config.toml')
 
     def test_smtp_modes_authentication_and_subject(self):
         for security in ('starttls', 'ssl', 'none'):
-            with self.subTest(security=security), patch.object(app.smtplib, 'SMTP') as plain, \
-                 patch.object(app.smtplib, 'SMTP_SSL') as encrypted:
+            with self.subTest(security=security), patch.object(mail.smtplib, 'SMTP') as plain, \
+                 patch.object(mail.smtplib, 'SMTP_SSL') as encrypted:
                 factory = encrypted if security == 'ssl' else plain
                 client = factory.return_value.__enter__.return_value
                 client.send_message.return_value = {}
                 settings = deepcopy(self.config['email'])
                 settings.update(security=security, username='user', password='secret')
                 payload = dict(dry_run=True, event='pbs_maintenance_dry_run', hostname='pbs-test')
-                app.email_send(settings, payload, logging.getLogger('test'))
+                mail.email_send(settings, payload, logging.getLogger('test'))
                 client.login.assert_called_once_with('user', 'secret')
                 message = client.send_message.call_args.args[0]
                 self.assertIn('DRY RUN', message['Subject'])
@@ -342,20 +350,20 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_smtp_partial_refusal_is_an_error(self):
         settings = deepcopy(self.config['email']); settings['security'] = 'none'
-        with patch.object(app.smtplib, 'SMTP') as smtp:
+        with patch.object(mail.smtplib, 'SMTP') as smtp:
             smtp.return_value.__enter__.return_value.send_message.return_value = {'bad@example.com': (550, b'no')}
             with self.assertRaisesRegex(RuntimeError, 'refused'):
-                app.email_send(settings, dict(dry_run=False, event='pbs_maintenance_success', hostname='pbs'),
+                mail.email_send(settings, dict(dry_run=False, event='pbs_maintenance_success', hostname='pbs'),
                                logging.getLogger('test'))
 
     def test_smtp_tls_failure_does_not_send_or_fallback(self):
         settings = deepcopy(self.config['email'])
         settings.update(username='user', password='secret')
-        with patch.object(app.smtplib, 'SMTP') as smtp, patch.object(app.smtplib, 'SMTP_SSL') as ssl:
+        with patch.object(mail.smtplib, 'SMTP') as smtp, patch.object(mail.smtplib, 'SMTP_SSL') as ssl:
             client = smtp.return_value.__enter__.return_value
             client.starttls.side_effect = RuntimeError('TLS failed')
             with self.assertRaisesRegex(RuntimeError, 'TLS failed'):
-                app.email_send(settings, dict(dry_run=True, event='pbs_maintenance_dry_run', hostname='pbs'),
+                mail.email_send(settings, dict(dry_run=True, event='pbs_maintenance_dry_run', hostname='pbs'),
                                logging.getLogger('test'))
             client.login.assert_not_called()
             client.send_message.assert_not_called()
@@ -371,10 +379,99 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_error_classifier_does_not_match_routine_mentions(self):
         for line in ('0 errors', 'no errors found', 'WARNING: error count is zero', 'verify failed count: 0', 'progress'):
-            self.assertFalse(app.is_error_line(line), line)
+            self.assertFalse(logging_config.is_error_line(line), line)
         for line in ('Error: broken', 'TASK ERROR: broken', '[ERROR] broken', 'FATAL: broken',
                      '2026-09-24T12:00:00Z: TASK ERROR: broken'):
-            self.assertTrue(app.is_error_line(line), line)
+            self.assertTrue(logging_config.is_error_line(line), line)
+
+
+    def prepare_cli_fixture(self):
+        """Copy the runtime and substitute a harmless PBS executable for CLI tests."""
+        runtime = self.folder / 'runtime'
+        runtime.mkdir()
+        shutil.copy2(SCRIPT, runtime / SCRIPT.name)
+        shutil.copytree(SCRIPT.parent / 'pbs_maintenance', runtime / 'pbs_maintenance',
+                        ignore=shutil.ignore_patterns('__pycache__'))
+        caller = self.folder / 'caller'
+        caller.mkdir()
+        binaries = self.folder / 'bin'
+        binaries.mkdir()
+        fake = binaries / 'proxmox-backup-manager'
+        fake.write_text(
+            '#!' + sys.executable + '\n'
+            'import json, os, sys\n'
+            'with open(os.environ["PBS_TEST_TRACE"], "a") as f: f.write(json.dumps(sys.argv[1:])+"\\n")\n'
+            'print("routine progress", file=sys.stderr)\n'
+            'if sys.argv[1] == os.environ.get("PBS_TEST_FAIL"):\n'
+            '    print("TASK ERROR: simulated failure", file=sys.stderr)\n'
+            '    sys.exit(7)\n')
+        fake.chmod(0o700)
+        env = os.environ.copy()
+        env.update(PATH=str(binaries), PYTHONDONTWRITEBYTECODE='1',
+                   PBS_TEST_TRACE=str(self.folder / 'command-trace.jsonl'))
+        return runtime, caller, env
+
+    def test_cli_dry_run_from_other_directory_and_symlink(self):
+        """Check real package imports and root-relative config/log paths via both launch paths."""
+        runtime, caller, env = self.prepare_cli_fixture()
+        self.config['dry_run']['enabled'] = True
+        write_toml(runtime / 'config.toml', self.config)
+        link = caller / 'maintenance.py'
+        link.symlink_to(runtime / SCRIPT.name)
+        for launcher in (runtime / SCRIPT.name, link):
+            result = subprocess.run([sys.executable, '-B', str(launcher)], cwd=caller,
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('DRY RUN [sync]', result.stderr)
+        self.assertFalse(Path(env['PBS_TEST_TRACE']).exists())
+        self.assertEqual(len(list((runtime / 'logs').glob('*.log'))), 2)
+        self.assertFalse(list((runtime / 'logs').glob('*.err')))
+        self.assertFalse((caller / 'logs').exists())
+        self.assertFalse((runtime / 'pbs_maintenance' / 'logs').exists())
+
+    def test_cli_simulated_commands_cross_module_boundaries(self):
+        """Run the real CLI against a fake executable to check success, stop order and file logs."""
+        runtime, caller, env = self.prepare_cli_fixture()
+        self.config['mqtt']['enabled'] = False
+        self.config['email']['enabled'] = False
+        config = caller / 'site.toml'
+        write_toml(config, self.config)
+        trace = Path(env['PBS_TEST_TRACE'])
+        for fail_step, expected in [('', ['sync-job', 'verify-job', 'prune-job', 'garbage-collection']),
+                                    ('verify-job', ['sync-job', 'verify-job'])]:
+            with self.subTest(fail_step=fail_step):
+                if trace.exists():
+                    trace.unlink()
+                env['PBS_TEST_FAIL'] = fail_step
+                result = subprocess.run([sys.executable, '-B', str(runtime / SCRIPT.name),
+                                         '--config', 'site.toml'], cwd=caller, env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1 if fail_step else 0, result.stderr)
+                commands = [json.loads(line)[0] for line in trace.read_text().splitlines()]
+                self.assertEqual(commands, expected)
+                errors = list((runtime / 'logs').glob('*.err'))
+                self.assertEqual(len(errors), int(bool(fail_step)))
+                if errors:
+                    text = errors[0].read_text()
+                    self.assertIn('TASK ERROR: simulated failure', text)
+                    self.assertNotIn('routine progress', text)
+        self.assertFalse((caller / 'logs').exists())
+
+    def test_package_imports_have_no_runtime_side_effects(self):
+        """Import every module in a fresh process with process/network creation forbidden."""
+        runtime, caller, env = self.prepare_cli_fixture()
+        code = (
+            'import sys, socket, subprocess; from unittest.mock import patch; '
+            'sys.path.insert(0, sys.argv[1])\n'
+            'with patch.object(subprocess, "Popen", side_effect=AssertionError("child")), '
+            'patch.object(socket.socket, "connect", side_effect=AssertionError("network")):\n'
+            '    from pbs_maintenance import settings, maintenance, logging_config, mail, mqtt\n'
+        )
+        result = subprocess.run([sys.executable, '-B', '-c', code, str(runtime)],
+                                cwd=caller, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((runtime / 'logs').exists())
+        self.assertFalse(Path(env['PBS_TEST_TRACE']).exists())
 
 
 if __name__ == '__main__':

@@ -4,6 +4,17 @@
 
 Use the single canonical filename `VERSIONING.md`. Do not create a case-only `versioning.md` duplicate: it conflicts on case-insensitive filesystems.
 
+## 0.0.4 — 2026-09-25
+
+- Refactor the single script into the `pbs_maintenance` package with five functional modules: `settings.py`, `maintenance.py`, `logging_config.py`, `mqtt.py`, and `mail.py`. Add only a small package `__init__.py` for version/root-location constants; retain the original filename and CLI in the launcher.
+- Keep sync, verify, prune and GC together: the shared planner plus manual-retention builder total about 30 lines, and all steps use the same executor and failure-stop logic. Keep notification coordination and outcome construction in maintenance rather than adding another tiny module.
+- Move existing functions/classes without rewriting their behavior. Qualify cross-module calls; rename the local notification settings variable to `mqtt_settings` to avoid shadowing the settings module. Read optional Paho availability through its owning module during validation.
+- Centralize version and project-root resolution in the package. Keep config.toml and logs/ beside the launcher even though logging code moved into a subdirectory. Increment VERSION and package __version__ from 0.0.3 to 0.0.4; the launcher imports the same version.
+- Use `settings.py` rather than `config.py` so the existing config*.* ignore rule cannot hide required Python source. No .gitignore rules, TOML keys/defaults, dependencies, command flags, payload structure, or safety policies change.
+- Adapt the 27 existing tests to import and patch the owning modules. Add three integration tests covering real CLI/package imports, direct and symlink launch from another directory, simulated PBS success/failure across module boundaries, and imports without runtime side effects. Add one shared disposable CLI-fixture helper; no production test services are contacted.
+- Document module responsibilities and installation layout in README, explain every moved function and command in commented_code_map.md, refresh both commented TOML version headers and command-reference header, and preserve the exact disclaimer.
+- Refresh verification and archive manifests. Preserve all original and 0.0.3 paths; package all six new package files without caches, runtime logs, environments, or temporary files.
+
 ## 0.0.3 — 2026-09-24
 
 - Add `.gitignore` with `config*.*` and `!config-example.toml`. Use the requested example filename consistently; no misspelled duplicate is created.

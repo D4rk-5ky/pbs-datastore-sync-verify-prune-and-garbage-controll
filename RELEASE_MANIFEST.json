@@ -1,31 +1,33 @@
 {
-  "version": "0.0.3",
+  "version": "0.0.4",
   "source_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-main.zip",
   "source_sha256": "50093438e40268b938fedf44ccaee1dda9571bd7cb5aff993885440c0dfdfca9",
   "source_note": "Original archive hash retained from prior release; original file hashes independently verified against preserved extraction.",
-  "prior_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-0.0.2.zip",
-  "prior_sha256": "7312c30eb2ae729b3971a5bec44154b09fbb19fa0c4dee36330d687fb21a8285",
+  "prior_archive": "pbs-datastore-sync-verify-prune-and-garbage-controll-0.0.3.zip",
+  "prior_sha256": "18eb34cc9b1c45d5875a23830df2316713fbb02b8b2b9e5b70f9db66e8e9aa80",
   "original_files": [
     {
       "path": "pbs-datastore-sync-verify,prune-gc.py",
       "source_sha256": "ab539598a839f74da4390cab3a2b7f942714255ebe8d0ec8a80070e2b3e8ddf0",
-      "release_sha256": "68a850d87d674335495a8f03ad6118ed49aa5411d1e4eb7825839fed52520a7e",
+      "release_sha256": "0d66989ee41a17ac9566ecf7b456698ae26bec14bb3febaba079896ca768fde2",
       "status": "modified"
     },
     {
       "path": "README.md",
       "source_sha256": "46dc8489208408eb46622bfccfc4f52b58cba485243b3074d02c485a086037dc",
-      "release_sha256": "97858700bb3c65cc2252ec0eaa5af382e44d9d92b6b8a74a24c092d4c92ff059",
+      "release_sha256": "ebff8193d3fce917d8750c73b5d562d604853fcc40b03e8c193d6641a853d339",
       "status": "modified"
     }
   ],
   "prior_release_paths": [
+    ".gitignore",
     "README.md",
     "RELEASE_MANIFEST.json",
     "VERIFICATION.md",
     "VERSION",
     "VERSIONING.md",
     "commented_code_map.md",
+    "config-example.toml",
     "config.toml",
     "examples/cli-options.txt",
     "pbs-datastore-sync-verify,prune-gc.py",
@@ -44,12 +46,22 @@
     "config-example.toml",
     "config.toml",
     "examples/cli-options.txt",
+    "pbs_maintenance/__init__.py",
+    "pbs_maintenance/logging_config.py",
+    "pbs_maintenance/mail.py",
+    "pbs_maintenance/maintenance.py",
+    "pbs_maintenance/mqtt.py",
+    "pbs_maintenance/settings.py",
     "requirements.txt",
     "tests/test_maintenance.py"
   ],
   "added_since_prior_release": [
-    ".gitignore",
-    "config-example.toml"
+    "pbs_maintenance/__init__.py",
+    "pbs_maintenance/logging_config.py",
+    "pbs_maintenance/mail.py",
+    "pbs_maintenance/maintenance.py",
+    "pbs_maintenance/mqtt.py",
+    "pbs_maintenance/settings.py"
   ],
   "release_files": [
     {
@@ -59,48 +71,78 @@
     },
     {
       "path": "README.md",
-      "size": 20982,
-      "sha256": "97858700bb3c65cc2252ec0eaa5af382e44d9d92b6b8a74a24c092d4c92ff059"
+      "size": 22696,
+      "sha256": "ebff8193d3fce917d8750c73b5d562d604853fcc40b03e8c193d6641a853d339"
     },
     {
       "path": "VERIFICATION.md",
-      "size": 2276,
-      "sha256": "eaba66680774b846a4f18a3b5dd48e603187fed7b85a0c3ca0d18c6e3442c0d9"
+      "size": 3894,
+      "sha256": "3cbd5b566689426eaedc4bf2970da0444de0ee613913c9526ff3e36871cfb5ab"
     },
     {
       "path": "VERSION",
       "size": 6,
-      "sha256": "4cac276b6ec5d4c71cd96ca2e7b762eb125439adbc8721de5613106d1345fe2d"
+      "sha256": "cc1d02b83e7dc225d30784f2aa7676f9b7f7f68639b6b941f5b732425902f763"
     },
     {
       "path": "VERSIONING.md",
-      "size": 7460,
-      "sha256": "e0a3944eb92ffccade18fbe864a168b2b5615b52fc4e7ec93fae472e6a59a586"
+      "size": 9655,
+      "sha256": "5eb762743278d700aa7b367ae66cd89aa5158ab89bfd3f9a222747ab5b326191"
     },
     {
       "path": "commented_code_map.md",
-      "size": 16620,
-      "sha256": "cf8767c6a204b3cccccfcf4d930683effdab70ef7cfcfd70999905ec5b2891b6"
+      "size": 18867,
+      "sha256": "f0848f08eac180ba03a7a191ffd0e3a8bbb7595c3fae2e3050ab41b6c11867bd"
     },
     {
       "path": "config-example.toml",
       "size": 7998,
-      "sha256": "20a654ab79ee489883d881843f70b5daaeee4d3a3a0a421c40a1ac360141ff85"
+      "sha256": "a8b5962bf942e522bb205b6c1c129f36a24328235763ff88eaa38ceb8a65ed22"
     },
     {
       "path": "config.toml",
       "size": 7840,
-      "sha256": "98fb0fa9c685d28b541f4849fa50ec11d3c129cf6a0756e45cc7a848275ba167"
+      "sha256": "9c7dd49e7e06d124020757be1f7b2895af63f72ff161818d384b16c1c4b2b5ed"
     },
     {
       "path": "examples/cli-options.txt",
-      "size": 1953,
-      "sha256": "dbe0df66bfc1301e6a49a288f95172982b38b8a4824472a44332453d9146e3fc"
+      "size": 2124,
+      "sha256": "0862b39e7d00f769f7aa312df7f021829fb4340ec89acdce4949116f546f09c1"
     },
     {
       "path": "pbs-datastore-sync-verify,prune-gc.py",
-      "size": 26257,
-      "sha256": "68a850d87d674335495a8f03ad6118ed49aa5411d1e4eb7825839fed52520a7e"
+      "size": 2216,
+      "sha256": "0d66989ee41a17ac9566ecf7b456698ae26bec14bb3febaba079896ca768fde2"
+    },
+    {
+      "path": "pbs_maintenance/__init__.py",
+      "size": 246,
+      "sha256": "ec2a839aeff7bea78dcab3218f97c29ecb3245d9e35c849ffa5b2f3974912aa0"
+    },
+    {
+      "path": "pbs_maintenance/logging_config.py",
+      "size": 2923,
+      "sha256": "acaabedcb905c6ce7272073e2fcb724758db6912dd49cbac225838d6fef5d615"
+    },
+    {
+      "path": "pbs_maintenance/mail.py",
+      "size": 1734,
+      "sha256": "e0a57287e30760b55c77efd8ef43c801725d0f1792ecf31680ad69898702dbc4"
+    },
+    {
+      "path": "pbs_maintenance/maintenance.py",
+      "size": 9976,
+      "sha256": "5932b195656db63e6a115c19b86068615961b367cfc7d41e257cd386b470f276"
+    },
+    {
+      "path": "pbs_maintenance/mqtt.py",
+      "size": 2930,
+      "sha256": "43155467004828e9e6750fc07ebc76f5c0750055f47d0788a10b507888d78760"
+    },
+    {
+      "path": "pbs_maintenance/settings.py",
+      "size": 7756,
+      "sha256": "3198ed11637b2a713cea330cf715b9e91e02d1fb7bf6942d759a3eeca1e075f7"
     },
     {
       "path": "requirements.txt",
@@ -109,8 +151,8 @@
     },
     {
       "path": "tests/test_maintenance.py",
-      "size": 21123,
-      "sha256": "f7cf213e66174b804f2ef61ce1525274880fe5dd5b3a5fe29520b4a97479530e"
+      "size": 26684,
+      "sha256": "a5f23eb444fe8678df93439d7fa83ddbe48e9d603a94520bf34e04276405298a"
     }
   ],
   "manifest_note": "Manifest self-hash excluded to avoid recursion. ZIP CRC and external archive SHA-256 cover the entire package."

@@ -1,6 +1,6 @@
 # PBS datastore maintenance
 
-Version **0.0.3**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and SMTP can report outcomes, including explicitly requested dry-run notifications.
+Version **0.0.4**. Configure PBS sync, verification, pruning and garbage collection in `config.toml`; run the Python script without operational flags. Each run writes local logs. MQTT and SMTP can report outcomes, including explicitly requested dry-run notifications.
 
 ## ⚠️ Disclaimer / Liability
 
@@ -34,6 +34,8 @@ You are responsible for reviewing the code, testing it in a safe environment, ma
 ## Install and start
 
 Use Python **3.9+**. Real maintenance runs require `proxmox-backup-manager` in PATH on the **PBS server**, and an account allowed to perform the selected operations. A dry run can run on a machine without PBS installed.
+
+Keep the complete extracted project together, including the `pbs_maintenance/` folder beside the original Python script. Copying the launcher alone is not sufficient.
 
 From the extracted project directory:
 
@@ -252,6 +254,22 @@ All outcome events include `hostname`, `time_utc` (UTC ISO timestamp), selected 
 | `2` | Arguments, TOML, settings, dependencies, executable preflight, or log creation prevented startup. No maintenance ran. |
 
 Unexpected exceptions and interruptions may terminate without an outcome notification. If logging cannot be initialized, the error appears on the terminal. Inspect both local logs and PBS task status before retrying a real run: earlier steps may already have completed. No notification channel guarantees delivery for every kind of failure.
+
+## Project layout
+
+The original `pbs-datastore-sync-verify,prune-gc.py` remains the command-line entry point. Keep its sibling `pbs_maintenance/` package when installing or moving the application. All runtime options still come from TOML; package modules are imported by the launcher and are not separate commands.
+
+| Module | Responsibility |
+| --- | --- |
+| `pbs_maintenance/settings.py` | TOML defaults, loading, validation, and choosing notification channels. |
+| `pbs_maintenance/maintenance.py` | Sync, verify, prune and garbage collection; shared command execution, dry-run, outcome data, and notification coordination. |
+| `pbs_maintenance/logging_config.py` | Console output, private full/error log files, and error classification. |
+| `pbs_maintenance/mqtt.py` | MQTT connection, authentication, TLS and acknowledged publication. |
+| `pbs_maintenance/mail.py` | SMTP connection, authentication, TLS and email delivery. |
+
+A small `pbs_maintenance/__init__.py` holds the version and project-directory location. Default config and logs remain in the project root beside the launcher, not inside the package.
+
+The four PBS operations share one module because their command planner plus the manual-prune helper total about 30 lines. Splitting them into four files would mostly separate tiny command builders that depend on the same executor and stop-on-failure workflow. Email and MQTT have distinct protocols and dependencies, so each has its own module. No separate utility, model, per-step, or notification-dispatch modules are needed.
 
 ## Project and verification files
 
